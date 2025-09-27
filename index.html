@@ -111,21 +111,84 @@ async function tryBarcodeDetector(videoEl){
   } catch(e){ log('BarcodeDetector error', e.message || e); return false; }
 }
 
+
 async function startHtml5(cameraId){
-  if(!window.Html5Qrcode){ log('Html5Qrcode not present'); return false; }
-  try{
+  if(!window.Html5Qrcode){
+    log('Html5Qrcode not present','cannot start html5-qrcode');
+    return false;
+  }
+  try {
     if(!html5Q) html5Q = new Html5Qrcode('reader');
+
+    // ensure previous html5 state is cleared
+    try {
+      if(typeof html5Q.getState === 'function'){
+        const st = html5Q.getState();
+        log('html5 state before start', st);
+        if(st === Html5QrcodeState.SCANNING || st === 'SCANNING'){
+          try{ await html5Q.stop(); log('html5 stopped previous scan'); } catch(e){ log('html5 stop error', e && e.message ? e.message : e); }
+        }
+      } else {
+        // try clear/stop anyway
+        try{ await html5Q.clear(); }catch(e){};
+      }
+    } catch(e){
+      log('html5 pre-start cleanup error', e && e.message ? e.message : e);
+    }
+
     const cfg = {
       fps: 10,
       qrbox: { width: Math.min(window.innerWidth, 800), height: Math.min(window.innerHeight * 0.7, 600) },
       formatsToSupport: ["code_128","code_39","code_93","ean_13","ean_8","upc_a","upc_e"]
     };
-    const arg = cameraId ? cameraId : { facingMode:'environment', width:{ideal:1280}, height:{ideal:720} };
-    await html5Q.start(arg, cfg, decoded => addSeen(decoded), err=>{} );
-    log('html5-qrcode running (1-D optimized)');
-    return true;
-  }catch(e){ log('html5 start failed', e.message || e); return false; }
+
+    // Build attempts with single-key objects only (html5-qrcode requires single key)
+    const attempts = [];
+    if(cameraId){
+      // prefer plain cameraId string first
+      attempts.push(cameraId);
+      // then deviceId exact object
+      attempts.push({ deviceId: { exact: cameraId } });
+      // then deviceId simple
+      attempts.push({ deviceId: cameraId });
+    }
+    // finally allow facingMode as single-key object
+    attempts.push({ facingMode: "environment" });
+    // and plain unspecified (let the library pick)
+    attempts.push(undefined);
+
+    for(const arg of attempts){
+      try {
+        log('html5-qrcode attempt start','arg=' + (arg === undefined ? '(default)' : (typeof arg === 'string' ? arg : JSON.stringify(Object.keys(arg)))));
+        // some builds disallow undefined: call appropriate overload
+        if(arg === undefined){
+          await html5Q.start({ facingMode: "environment" }, cfg, decoded => addSeen(decoded), err=>{});
+        } else {
+          await html5Q.start(arg, cfg, decoded => addSeen(decoded), err=>{});
+        }
+        log('html5-qrcode running (1-D optimized)','start succeeded');
+        return true;
+      } catch(eStart){
+        const em = (eStart && eStart.message) ? eStart.message : String(eStart);
+        log('html5.start failed for arg', em);
+        console.error('html5.start failed for arg', arg, eStart);
+        // try to stop/clear before next attempt
+        try{ await html5Q.stop(); }catch(_){}
+        try{ if(typeof html5Q.clear === 'function') html5Q.clear(); }catch(_){}
+        await new Promise(r=>setTimeout(r,200)); // brief pause
+      }
+    }
+
+    log('html5-qrcode could not start','all attempts failed');
+    return false;
+
+  } catch(e){
+    log('html5 unexpected error', e && e.message ? e.message : e);
+    console.error('startHtml5 unexpected', e);
+    return false;
+  }
 }
+
 
 async function startRaw(cameraId){
   try{
@@ -149,24 +212,94 @@ async function listCameras(){
     camSelect.innerHTML = '';
     vids.forEach((d,i)=>{ const opt=document.createElement('option'); opt.value=d.deviceId; opt.text = d.label || ('camera '+(i+1)); camSelect.appendChild(opt); });
     log('cameras listed: ' + vids.length);
+
+    // auto-select best rear camera if available (prefer labels with 'posteriore' and avoid 'ultra' or 'front')
+    try {
+      if(camSelect.options.length > 0) {
+        let preferred = null;
+        for(let i=0;i<camSelect.options.length;i++){
+          const t = camSelect.options[i].text.toLowerCase();
+          if(t.includes('posteriore') && !t.includes('ultra') && !t.includes('ultra-grandangolo') && !t.includes('anter') && !t.includes('front')) {
+            preferred = camSelect.options[i].value; break;
+          }
+        }
+        // fallback: pick any option that contains 'posteriore'
+        if(!preferred){
+          for(let i=0;i<camSelect.options.length;i++){
+            const t = camSelect.options[i].text.toLowerCase();
+            if(t.includes('posteriore')) { preferred = camSelect.options[i].value; break; }
+          }
+        }
+        // last fallback: pick the last option (usually main back camera)
+        if(!preferred) preferred = camSelect.options[camSelect.options.length-1].value;
+        camSelect.value = preferred;
+        log('auto-selected camera id', camSelect.value);
+      }
+    } catch(e){ log('auto-select camera failed', e && e.message ? e.message : e); }
+
     return vids;
   }catch(e){ log('enumerate failed', e.message || e); return []; }
 }
 
+
 async function startAll(){
   if(scanning) return;
-  scanning = true; seen={}; renderTable();
+  scanning = true;
+  seen = {}; renderTable();
+
   await listCameras();
   const chosen = camSelect.value || undefined;
+
+  log('startAll','chosen camera: ' + (chosen || '(none)'));
+
+  // Try html5-qrcode directly first (robust attempts inside)
+  try {
+    const html5ok = await startHtml5(chosen);
+    if(html5ok){
+      log('scanning with html5-qrcode (direct)','OK');
+      return;
+    }
+    log('html5-qrcode direct start failed — falling back to raw preview','attempting fallback');
+  } catch(e){
+    log('startAll html5 attempt threw', e && e.message ? e.message : e);
+    console.error('startAll html5 attempt threw', e);
+  }
+
+  // Fallback: raw preview + native BarcodeDetector if available
   const vEl = await startRaw(chosen);
-  if(!vEl){ scanning=false; return; }
-  const bd = await tryBarcodeDetector(vEl);
-  if(bd){ bdStop = bd; log('scanning with BarcodeDetector'); return; }
-  if(rawStream){ rawStream.getTracks().forEach(t=>t.stop()); rawStream=null; reader.innerHTML='camera preview'; }
-  const h = await startHtml5(chosen);
-  if(h){ log('scanning with html5-qrcode'); return; }
-  log('fallback: raw preview running but no automatic decoder available');
+  if(!vEl){
+    scanning = false;
+    log('startAll aborted','raw preview failed');
+    return;
+  }
+
+  try {
+    const bd = await tryBarcodeDetector(vEl);
+    if(bd){
+      bdStop = bd;
+      log('scanning with BarcodeDetector (native)','OK');
+      return;
+    }
+  } catch(e){
+    log('BarcodeDetector attempt error', e && e.message ? e.message : e);
+    console.error('BarcodeDetector attempt error', e);
+  }
+
+  // Last resort: stop raw stream and retry html5 once
+  try {
+    if(rawStream){ rawStream.getTracks().forEach(t=>t.stop()); rawStream=null; reader.innerHTML='camera preview'; }
+    await new Promise(r=>setTimeout(r,200));
+    const html5second = await startHtml5(chosen);
+    if(html5second){ log('scanning with html5-qrcode (after raw stop)','OK'); return; }
+  } catch(e){
+    log('second html5 attempt error', e && e.message ? e.message : e);
+    console.error('second html5 attempt error', e);
+  }
+
+  log('startAll finished — no automatic decoder available','raw preview left running');
+  return;
 }
+
 
 async function stopAll(){
   scanning=false;

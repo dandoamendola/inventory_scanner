@@ -1,0 +1,230 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pick Logger — Scan / Manual / Photo</title>
+<style>
+  body{font-family:Arial,Helvetica,sans-serif;margin:0;display:flex;flex-direction:column;height:100vh}
+  #top{background:#0d47a1;color:#fff;padding:8px}
+  #controls{padding:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  #reader{flex:1;display:flex;align-items:center;justify-content:center;background:#000}
+  #list{max-height:220px;overflow:auto;padding:8px;background:#f9f9f9}
+  .row{display:flex;justify-content:space-between;padding:6px;border-bottom:1px solid #eee;align-items:center}
+  .small{font-size:0.85rem;color:#444}
+  button{padding:8px 12px;margin:4px}
+  input,select{padding:6px}
+  .thumb{height:36px;margin-left:8px;border:1px solid #ccc}
+</style>
+</head>
+<body>
+  <div id="top"><strong>Pick Logger</strong> — Scan, Manual serial & Photo</div>
+
+  <div id="controls">
+    <label>Technician: <input id="tech" placeholder="Your name"></label>
+    <label>Action:
+      <select id="action"><option value="Taken">Taken</option><option value="Returned">Returned</option></select>
+    </label>
+    <label>Mode:
+      <select id="mode"><option value="scan">Scan</option><option value="manual">Manual+Photo</option></select>
+    </label>
+    <button id="clearAll">Clear</button>
+    <button id="shareBtn">Share summary</button>
+  </div>
+
+  <div id="reader"></div>
+
+  <div style="padding:8px">
+    <div style="display:flex;gap:8px;align-items:center;">
+      <div>
+        <input id="manualCode" placeholder="Type serial here (manual mode)" style="width:220px">
+      </div>
+      <div>
+        <input id="photoInput" accept="image/*" type="file" capture="environment" style="display:inline-block">
+      </div>
+      <div>
+        <button id="addManual">Add manual</button>
+        <button id="ocrBtn">Try OCR (optional)</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="list"></div>
+
+<!-- html5-qrcode lib for barcode -->
+<script src="https://unpkg.com/html5-qrcode@2.3.8/minified/html5-qrcode.min.js"></script>
+<!-- Optional: Tesseract.js for OCR (heavy) -->
+<!-- <script src="https://unpkg.com/tesseract.js@2.1.4/dist/tesseract.min.js"></script> -->
+
+<script>
+const html5QrCode = new Html5Qrcode("reader");
+const items = {}; // key = barcode or serial -> {qty, barcode, photos: [dataURLs]}
+const listEl = document.getElementById('list');
+const techEl = document.getElementById('tech');
+const actionEl = document.getElementById('action');
+const modeEl = document.getElementById('mode');
+const manualInput = document.getElementById('manualCode');
+const photoInput = document.getElementById('photoInput');
+const ocrBtn = document.getElementById('ocrBtn');
+let cameraStarted = false;
+
+function renderList(){
+  listEl.innerHTML = '';
+  Object.keys(items).forEach(k=>{
+    const it = items[k];
+    const r = document.createElement('div'); r.className='row';
+    const left = document.createElement('div');
+    left.innerHTML = `<div><strong>${k}</strong> <span class="small">(${it.type||'item'})</span></div><div class="small">${it.note||''}</div>`;
+    const right = document.createElement('div');
+    right.innerHTML = `<span>x${it.qty}</span>`;
+    // thumbs
+    if(it.photos && it.photos.length){
+      it.photos.forEach((p,idx)=>{
+        const img = document.createElement('img'); img.src = p; img.className='thumb';
+        img.title = `Photo ${idx+1}`;
+        right.appendChild(img);
+      });
+    }
+    // remove button
+    const rem = document.createElement('button'); rem.textContent='−'; rem.style.marginLeft='8px';
+    rem.addEventListener('click', ()=>{ delete items[k]; renderList(); });
+    right.appendChild(rem);
+
+    r.appendChild(left); r.appendChild(right);
+    listEl.appendChild(r);
+  });
+}
+
+function addItem(code, photoDataURL){
+  code = String(code).trim();
+  if(!code) return;
+  if(!items[code]) items[code] = {qty:0, barcode:code, photos:[]};
+  items[code].qty += 1;
+  if(photoDataURL) items[code].photos.push(photoDataURL);
+  renderList();
+}
+
+// start scanner only if in Scan mode
+function startCameraIfNeeded(){
+  if(modeEl.value !== 'scan') { stopCamera(); return; }
+  if(cameraStarted) return;
+  Html5Qrcode.getCameras().then(cameras=>{
+    if(cameras && cameras.length){
+      const camId = cameras[0].id;
+      html5QrCode.start(camId, {fps:8, qrbox: {width: 250, height:250}, formatsToSupport: ["ean_13","ean_8","code_128","upc_a","upc_e","code_39"]},
+        (decodedText, decodedResult)=>{ addItem(decodedText); },
+        (errorMessage)=>{/* ignore */})
+      .then(()=>{ cameraStarted = true; })
+      .catch(err=>{ document.getElementById('reader').innerText = 'Camera start error: '+err; });
+    } else {
+      document.getElementById('reader').innerText = 'No camera found';
+    }
+  }).catch(err=>{
+    document.getElementById('reader').innerText = 'Camera access denied';
+  });
+}
+
+function stopCamera(){
+  if(!cameraStarted) return;
+  html5QrCode.stop().then(()=>{ cameraStarted = false; document.getElementById('reader').innerText = ''; }).catch(()=>{ cameraStarted=false; });
+}
+
+modeEl.addEventListener('change', ()=>{
+  if(modeEl.value === 'scan') startCameraIfNeeded(); else stopCamera();
+});
+
+// add manual with photo
+document.getElementById('addManual').addEventListener('click', ()=>{
+  const code = manualInput.value.trim();
+  if(!code){
+    alert('Type serial first or scan code');
+    return;
+  }
+  if(photoInput.files && photoInput.files[0]){
+    const f = photoInput.files[0];
+    const reader = new FileReader();
+    reader.onload = function(e){
+      addItem(code, e.target.result);
+      manualInput.value=''; photoInput.value='';
+    };
+    reader.readAsDataURL(f);
+  } else {
+    addItem(code,null);
+    manualInput.value='';
+  }
+});
+
+// optional OCR attempt on selected photo (if Tesseract included)
+ocrBtn.addEventListener('click', ()=>{
+  if(!photoInput.files || !photoInput.files[0]) { alert('Select a photo first'); return; }
+  const f = photoInput.files[0];
+  const reader = new FileReader();
+  reader.onload = function(e){
+    // If Tesseract.js is loaded uncomment below
+    if(typeof Tesseract !== 'undefined'){
+      ocrBtn.disabled = true; ocrBtn.textContent='OCR...';
+      Tesseract.recognize(e.target.result, 'eng', {logger: m=>console.log(m)})
+        .then(({ data: { text } })=>{
+          const extracted = text.replace(/\s+/g,' ').trim();
+          manualInput.value = extracted.split(' ').slice(0,4).join(''); // naive
+          ocrBtn.disabled=false; ocrBtn.textContent='Try OCR (optional)';
+          alert('OCR result (please check): ' + manualInput.value);
+        }).catch(err=>{
+          ocrBtn.disabled=false; ocrBtn.textContent='Try OCR (optional)';
+          alert('OCR failed: ' + err);
+        });
+    } else {
+      alert('OCR not enabled on this page. It requires Tesseract.js to be included.');
+    }
+  };
+  reader.readAsDataURL(f);
+});
+
+// share summary (text + try to include photos if possible)
+document.getElementById('shareBtn').addEventListener('click', async ()=>{
+  if(Object.keys(items).length===0){ alert('No items scanned'); return; }
+  const tech = techEl.value || 'Unknown';
+  const action = actionEl.value || 'Taken';
+  const now = new Date().toLocaleString();
+  let text = `TECH: ${tech}\nACTION: ${action}\nTIME: ${now}\n\nItems:\n`;
+  const filesToShare = [];
+  for(const k of Object.keys(items)){
+    text += `${k}  x${items[k].qty}\n`;
+    // prepare images as blobs if possible (only first image of each item to limit size)
+    if(items[k].photos && items[k].photos.length){
+      try {
+        const dataUrl = items[k].photos[0];
+        const res = await fetch(dataUrl);
+        const blob = await res.blob();
+        const file = new File([blob], `${k.replace(/\W/g,'')}_1.jpg`, {type: blob.type});
+        filesToShare.push(file);
+      } catch(e){ console.warn('photo to file failed', e); }
+    }
+  }
+
+  // First: try Web Share with files (mobile modern browsers)
+  if(navigator.canShare && filesToShare.length && navigator.canShare({ files: filesToShare })) {
+    try {
+      await navigator.share({ files: filesToShare, text: text, title: 'Inventory Picks' });
+      // after successful share, optionally clear
+      for(let k in items) delete items[k];
+      renderList();
+      return;
+    } catch(e){
+      console.warn('share files failed', e);
+    }
+  }
+
+  // Fallback: open WhatsApp web with text only, and instruct to attach photos manually
+  const waUrl = 'https://wa.me/?text=' + encodeURIComponent(text + '\n(Photos available — attach them manually to the chat)');
+  window.open(waUrl,'_blank');
+});
+
+// clear
+document.getElementById('clearAll').addEventListener('click', ()=>{ if(confirm('Clear scanned list?')) { for(let k in items) delete items[k]; renderList(); } });
+
+// start camera by default
+startCameraIfNeeded();
+</script>
+</body>
+</html>

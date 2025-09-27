@@ -1,147 +1,48 @@
 <!doctype html>
 <html>
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Scan Debug — Pick Logger</title>
-  <style>
-    body{font-family:Arial,Helvetica,sans-serif;margin:0;padding:0}
-    #top{background:#0d47a1;color:#fff;padding:10px}
-    #reader{height:360px;background:#000;display:flex;align-items:center;justify-content:center;color:#fff}
-    #debug{padding:10px;font-size:0.9rem}
-    select,input,button{padding:6px;margin:6px}
-    .ok{color:green} .err{color:#b00020}
-  </style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Debug Test — Camera & JS</title>
+  <style>body{font-family:Arial;padding:12px}button{padding:10px}</style>
 </head>
 <body>
-  <div id="top"><strong>Scan Debug</strong> — diagnostics & camera test</div>
-  <div id="controls" style="padding:8px">
-    <label>Browser: <span id="ua"></span></label><br>
-    <label>Choose camera:
-      <select id="cameraSelect"><option>loading...</option></select>
-    </label>
-    <button id="startBtn">Start camera</button>
-    <button id="stopBtn">Stop camera</button>
-    <button id="testBarcode">Test sample barcode (simulate)</button>
+  <h2>Debug Test — Camera & JS</h2>
+  <p>This page tests: JS execution, loading external script, getUserMedia permission.</p>
+
+  <div>
+    <button id="btnAlert">Click me (JS test)</button>
+    <button id="btnCamera">Request Camera</button>
   </div>
 
-  <div id="reader">camera preview</div>
-  <div id="debug">
-    <div><strong>Status</strong>: <span id="status">idle</span></div>
-    <div><strong>Message</strong>: <span id="message"></span></div>
-    <div><strong>Cameras found</strong>:</div>
-    <ul id="cams"></ul>
-    <div style="margin-top:8px"><strong>Scan results</strong>:</div>
-    <pre id="results"></pre>
-  </div>
+  <div id="status" style="margin-top:12px;color:#222"></div>
+  <video id="video" autoplay playsinline style="width:100%;max-width:420px;margin-top:8px;border:1px solid #ccc"></video>
 
-  <script src="https://unpkg.com/html5-qrcode@2.3.8/minified/html5-qrcode.min.js"></script>
   <script>
-    const uaEl = document.getElementById('ua'); uaEl.textContent = navigator.userAgent;
-    const statusEl = document.getElementById('status');
-    const messageEl = document.getElementById('message');
-    const camsEl = document.getElementById('cams');
-    const resultsEl = document.getElementById('results');
-    const cameraSelect = document.getElementById('cameraSelect');
-    const startBtn = document.getElementById('startBtn');
-    const stopBtn = document.getElementById('stopBtn');
-    const readerDiv = document.getElementById('reader');
-    const testBtn = document.getElementById('testBarcode');
-
-    let html5QrCode = null;
-    let currentCameraId = null;
-    let cameraStarted = false;
-
-    function logStatus(s, msg) {
-      statusEl.textContent = s;
-      messageEl.textContent = msg || "";
-    }
-
-    // list cameras
-    function listCameras() {
-      logStatus('listing cameras','requesting camera list...');
-      html5QrCode = new Html5Qrcode("reader");
-      Html5Qrcode.getCameras().then(cameras => {
-        camsEl.innerHTML = '';
-        cameraSelect.innerHTML = '';
-        if(cameras && cameras.length) {
-          cameras.forEach((c, i) => {
-            const li = document.createElement('li'); li.textContent = `${c.label || 'camera'} — id: ${c.id}`; camsEl.appendChild(li);
-            const opt = document.createElement('option'); opt.value = c.id; opt.text = (c.label || ('camera ' + (i+1))); cameraSelect.appendChild(opt);
-          });
-          logStatus('cameras found', cameras.length + ' camera(s)');
-        } else {
-          camsEl.innerHTML = '<li class="err">No cameras reported by browser</li>';
-          cameraSelect.innerHTML = '<option value="">(no cameras)</option>';
-          logStatus('no cameras','Browser returned no camera list — try another browser (Chrome on Android recommended)');
-        }
-      }).catch(err=>{
-        camsEl.innerHTML = '<li class="err">Error getting cameras: ' + String(err) + '</li>';
-        cameraSelect.innerHTML = '<option value="">(error)</option>';
-        logStatus('error', 'getCameras() failed — ' + String(err));
-      });
-    }
-
-    function startCamera(cameraId) {
-      if(!cameraId) { messageEl.textContent = 'no camera id'; return; }
-      logStatus('starting camera','starting html5-qrcode with camera id: ' + cameraId);
-      const config = { fps: 8, qrbox: { width: 250, height: 100}, formatsToSupport: ["ean_13","ean_8","code_128","upc_a","upc_e","code_39"] };
-      html5QrCode.start(cameraId, config,
-        (decodedText, decodedResult) => {
-          resultsEl.textContent = 'DETECTED: ' + decodedText + '\\n' + (resultsEl.textContent || '');
-        },
-        (err) => {
-          // errors during scanning (ignored)
-        }
-      ).then(()=> {
-        cameraStarted = true;
-        logStatus('camera running','scanner active');
-      }).catch(err => {
-        cameraStarted = false;
-        logStatus('start failed', String(err));
-        messageEl.textContent = 'Could not start scanner: ' + String(err) + ' — try another browser (Chrome Android) or allow camera permission.';
-      });
-    }
-
-    function stopCamera() {
-      if(html5QrCode && cameraStarted){
-        html5QrCode.stop().then(()=> {
-          cameraStarted = false;
-          logStatus('stopped','camera stopped');
-          readerDiv.innerHTML = 'camera preview';
-        }).catch(err => {
-          logStatus('stop failed', String(err));
-        });
-      } else {
-        logStatus('idle','camera not running');
-      }
-    }
-
-    startBtn.addEventListener('click', ()=> {
-      const camId = cameraSelect.value;
-      if(!camId) {
-        logStatus('no camera selected','choose a camera from the dropdown');
-        return;
-      }
-      startCamera(camId);
+    document.getElementById('btnAlert').addEventListener('click', function(){
+      alert('JS is running ✅');
+      console.log('JS click OK');
+      document.getElementById('status').textContent = 'JS executed: OK';
     });
-    stopBtn.addEventListener('click', ()=> stopCamera());
-    testBtn.addEventListener('click', ()=> resultsEl.textContent = 'SIMULATED_SCAN: 1234567890123\\n' + (resultsEl.textContent || '') );
 
-    // Initialize
-    listCameras();
-
-    // Helpful auto behavior: if one camera found, try to start it after permission
-    setTimeout(()=> {
-      if(cameraSelect.options.length === 1 && cameraSelect.value) {
-        startCamera(cameraSelect.value);
+    document.getElementById('btnCamera').addEventListener('click', async function(){
+      document.getElementById('status').textContent = 'Requesting camera…';
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+        document.getElementById('video').srcObject = stream;
+        document.getElementById('status').textContent = 'Camera started ✓';
+        console.log('Camera stream:', stream);
+      } catch (err) {
+        document.getElementById('status').textContent = 'Camera error: ' + err;
+        console.error('getUserMedia error', err);
       }
-    }, 1500);
+    });
 
-    // extra hint
-    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      logStatus('no getUserMedia','This browser does not support camera access via getUserMedia. Try Chrome on Android or Safari on iOS.');
-    }
+    // quick diagnostic on load
+    window.addEventListener('load', function(){
+      console.log('UserAgent:', navigator.userAgent);
+      document.getElementById('status').textContent = 'Page loaded. Click "Click me" to test JS.';
+    });
   </script>
 </body>
 </html>

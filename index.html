@@ -3,64 +3,151 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Pick Logger — Robust Start</title>
+<title>Scanner Ultimate Test</title>
 <style>
-  body{font-family:Arial,Helvetica,sans-serif;margin:0;display:flex;flex-direction:column;min-height:100vh}
-  #top{background:#0d47a1;color:#fff;padding:10px}
-  #controls{padding:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-  #reader{flex:1;display:flex;align-items:center;justify-content:center;background:#000;color:#fff;min-height:260px}
-  #list{max-height:180px;overflow:auto;padding:8px;background:#f9f9f9}
-  .row{display:flex;justify-content:space-between;padding:6px;border-bottom:1px solid #eee;align-items:center}
-  .thumb{height:36px;margin-left:8px;border:1px solid #ccc}
-  button,input,select{padding:8px;margin:4px}
-  #debug{font-size:0.86rem;padding:8px;color:#111;background:#fafafa;border-top:1px solid #ddd}
+  body{font-family:Arial;margin:0;padding:0}
+  header{background:#0d47a1;color:#fff;padding:10px}
+  #reader{width:100%;height:320px;background:#000;display:flex;align-items:center;justify-content:center;color:#fff}
+  #controls{padding:8px;display:flex;flex-wrap:wrap;gap:8px}
+  button,input{padding:8px}
+  #debug{padding:8px;background:#f7f7f7;border-top:1px solid #ddd;font-size:0.9rem}
+  pre{white-space:pre-wrap}
 </style>
 </head>
 <body>
-  <div id="top"><strong>Pick Logger</strong> — Start control & debug</div>
+  <header><strong>Scanner Ultimate Test</strong> — try BarcodeDetector / html5-qrcode / preview</header>
 
   <div id="controls">
-    <label>Technician: <input id="tech" placeholder="Your name"></label>
-    <label>Mode:
-      <select id="mode"><option value="scan">Scan</option><option value="manual">Manual+Photo</option></select>
-    </label>
-    <button id="loadLib">Load scanner lib</button>
-    <button id="listCams">List cameras</button>
-    <select id="camSelect" style="min-width:160px"></select>
-    <button id="startCam">Start camera</button>
-    <button id="stopCam">Stop camera</button>
-    <button id="clearAll">Clear</button>
-    <button id="shareBtn">Share</button>
+    <button id="startBtn">Start</button>
+    <button id="stopBtn">Stop</button>
+    <label>Camera: <select id="camSelect"></select></label>
+    <label>Mode: <select id="mode"><option value="scan">Scan</option><option value="manual">Manual</option></select></label>
+    <input id="manualInput" placeholder="manual code" style="width:160px">
   </div>
 
-  <div id="reader">Camera preview will appear here (allow camera)</div>
+  <div id="reader">camera preview</div>
 
   <div style="padding:8px">
-    <input id="manualCode" placeholder="Serial (manual mode)" style="width:220px">
-    <input id="photoInput" accept="image/*" type="file" capture="environment">
-    <button id="addManual">Add manual</button>
+    <div>Scans: <span id="scansCount">0</span></div>
+    <div id="lastScan"></div>
   </div>
-
-  <div id="list"></div>
 
   <div id="debug">
     <div><strong>Debug</strong></div>
     <div id="dbg-status">status: idle</div>
-    <div id="dbg-cameras">cameras: -</div>
     <div id="dbg-msg"></div>
-    <pre id="dbg-console" style="max-height:120px;overflow:auto;background:#fff;padding:6px;border:1px solid #eee"></pre>
+    <pre id="dbg-console"></pre>
   </div>
 
 <script>
-/* ========== CONFIG ========== */
-// leave empty if no server integration
-const APPS_SCRIPT_URL = ""; 
+const dbgStatus = id('dbg-status'), dbgMsg = id('dbg-msg'), dbgConsole = id('dbg-console');
+const reader = id('reader'), camSelect = id('camSelect'), startBtn = id('startBtn'), stopBtn = id('stopBtn');
+const scansCountEl = id('scansCount'), lastScanEl = id('lastScan');
+let html5Q = null, rawStream = null, detector = null;
+let scans = 0;
 
-// helpers
-function logDbg(s, camerasText, msg) {
-  document.getElementById('dbg-status').textContent = 'status: ' + s;
-  document.getElementById('dbg-cameras').textContent = 'cameras: ' + (camerasText || '-');
-  document.getElementById('dbg-msg').textContent = msg || '';
-  const consoleEl = document.getElementById('dbg-console');
-  consoleEl.textContent = (new Date().toLocaleTimeString()) + " | " + s + (msg ? " — " + msg : "") + "\n" + consoleEl.textContent;
-  console.
+function id(s){ return document.getElementById(s); }
+function log(s,m){ dbgStatus.textContent = 'status: ' + s; dbgMsg.textContent = m||''; dbgConsole.textContent = (new Date().toLocaleTimeString()) + ' | ' + s + (m? (' — '+m):'') + "\n" + dbgConsole.textContent; console.log(s,m); }
+
+async function enumerateCameras(){
+  try{
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    const vids = devs.filter(d=>d.kind==='videoinput');
+    camSelect.innerHTML = '';
+    vids.forEach(v=>{ const o=document.createElement('option'); o.value = v.deviceId; o.text = v.label || ('camera '+(camSelect.length+1)); camSelect.appendChild(o); });
+    log('cameras listed', vids.length + ' video inputs');
+  }catch(e){ log('enum error', e && e.message ? e.message : e); }
+}
+
+async function startPreview(deviceId){
+  stopAll();
+  try{
+    const constraints = deviceId ? { video: { deviceId: { exact: deviceId } } } : { video: { facingMode: 'environment' } };
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    rawStream = stream;
+    reader.innerHTML = '';
+    const v = document.createElement('video');
+    v.autoplay = true; v.playsInline = true; v.muted = true; v.srcObject = stream; v.style.maxWidth='100%';
+    reader.appendChild(v);
+    log('raw preview started','video element inserted');
+    return v;
+  }catch(e){ log('preview fail', e && e.message ? e.message : e); throw e; }
+}
+
+async function stopAll(){
+  if(html5Q){ try{ await html5Q.stop(); }catch(e){} html5Q = null; }
+  if(rawStream){ rawStream.getTracks().forEach(t=>t.stop()); rawStream=null; }
+  reader.innerHTML = 'camera preview';
+  log('stopped','all streams stopped');
+}
+
+async function tryBarcodeDetector(videoEl){
+  if(!('BarcodeDetector' in window)){
+    log('BarcodeDetector not available','native API not supported');
+    return false;
+  }
+  try{
+    const supported = await BarcodeDetector.getSupportedFormats();
+    log('BarcodeDetector supported formats', supported.join(', '));
+    detector = new BarcodeDetector({formats: supported});
+    // scanning loop
+    const scanLoop = async ()=>{
+      if(!videoEl || videoEl.paused || videoEl.ended) return;
+      try{
+        const barcodes = await detector.detect(videoEl);
+        if(barcodes && barcodes.length>0){
+          barcodes.forEach(b => { scans++; scansCountEl.textContent = scans; lastScanEl.textContent = '→ ' + b.rawValue; log('detected', b.rawValue); });
+        }
+      }catch(e){ /*ignore*/ }
+      requestAnimationFrame(scanLoop);
+    };
+    scanLoop();
+    return true;
+  }catch(e){ log('BarcodeDetector error', e && e.message ? e.message : e); return false; }
+}
+
+async function tryHtml5Qrcode(deviceId){
+  try{
+    if(!window.Html5Qrcode){
+      // load dynamically
+      await new Promise((res, rej)=>{
+        const s=document.createElement('script'); s.src='https://unpkg.com/html5-qrcode@2.3.8/minified/html5-qrcode.min.js';
+        s.onload=res; s.onerror=()=>rej(new Error('CDN load fail')); document.head.appendChild(s);
+      });
+      log('html5-qrcode loaded','from CDN');
+    }
+    html5Q = new Html5Qrcode(/* element id or element */ 'reader');
+    await html5Q.start(deviceId || { facingMode: 'environment' }, { fps: 8, qrbox: { width: 250 } },
+      (text)=>{ scans++; scansCountEl.textContent = scans; lastScanEl.textContent = '→ ' + text; log('html5 decoded', text); },
+      (err)=>{ /* scanning errors */ });
+    log('html5-qrcode running','scanner active');
+    return true;
+  }catch(e){ log('html5 start fail', e && e.message ? e.message : e); return false; }
+}
+
+startBtn.addEventListener('click', async ()=>{
+  log('start pressed','initializing');
+  scans = 0; scansCountEl.textContent = scans; lastScanEl.textContent = '';
+  try{
+    await enumerateCameras();
+    // prefer BarcodeDetector path if available + preview
+    const vid = await startPreview(camSelect.value || null);
+    // try BarcodeDetector first
+    const bdok = await tryBarcodeDetector(vid);
+    if(bdok){ log('using BarcodeDetector','native'); return; }
+    // else try html5
+    const hqok = await tryHtml5Qrcode(camSelect.value || null);
+    if(hqok) return;
+    // else fallback: keep raw preview and inform user
+    log('fallback raw preview active','no scanner available — raw preview running');
+  }catch(e){
+    log('start error', e && e.message ? e.message : e);
+  }
+});
+
+stopBtn.addEventListener('click', async ()=>{ await stopAll(); });
+window.addEventListener('load', ()=>{ log('page loaded', navigator.userAgent); enumerateCameras(); });
+
+</script>
+</body>
+</html>

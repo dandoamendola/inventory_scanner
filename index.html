@@ -53,8 +53,12 @@ var __Html5QrcodeLibrary__;(()=>{var t={449:function(t,e,r){!function(t){"use st
 
 <script>
 /* core app (same as previous) */
-const dbgStatus = document.getElementById('dbg-status');
-const dbgConsole = document.getElementById('dbg-console');
+const dbgStatus = document.getElementById('dbg-status') || (function(){
+  const d = document.createElement('div'); d.id='dbg-status'; d.style.display='none'; document.body.appendChild(d); return d;
+})();
+const dbgConsole = document.getElementById('dbg-console') || (function(){
+  const p = document.createElement('pre'); p.id='dbg-console'; p.style.display='none'; document.body.appendChild(p); return p;
+})();
 const reader = document.getElementById('reader');
 const camSelect = document.getElementById('camSelect');
 const modeEl = document.getElementById('mode');

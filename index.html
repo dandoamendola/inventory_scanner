@@ -3,151 +3,290 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Scanner Ultimate Test</title>
+<title>Pick Logger — Scan / Manual / Photo</title>
 <style>
-  body{font-family:Arial;margin:0;padding:0}
-  header{background:#0d47a1;color:#fff;padding:10px}
-  #reader{width:100%;height:320px;background:#000;display:flex;align-items:center;justify-content:center;color:#fff}
-  #controls{padding:8px;display:flex;flex-wrap:wrap;gap:8px}
-  button,input{padding:8px}
-  #debug{padding:8px;background:#f7f7f7;border-top:1px solid #ddd;font-size:0.9rem}
-  pre{white-space:pre-wrap}
+  body{font-family:Arial,Helvetica,sans-serif;margin:0;display:flex;flex-direction:column;min-height:100vh}
+  #top{background:#0d47a1;color:#fff;padding:10px}
+  #controls{padding:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  #reader{flex:1;display:flex;align-items:center;justify-content:center;background:#000;color:#fff;min-height:260px}
+  #list{max-height:220px;overflow:auto;padding:8px;background:#f9f9f9}
+  .row{display:flex;justify-content:space-between;padding:6px;border-bottom:1px solid #eee;align-items:center}
+  .small{font-size:0.85rem;color:#444}
+  button{padding:8px 12px;margin:4px}
+  input,select{padding:6px}
+  .thumb{height:36px;margin-left:8px;border:1px solid #ccc}
+  #debug{font-size:0.85rem;padding:6px;color:#333;background:#fafafa;border-top:1px solid #ddd}
 </style>
 </head>
 <body>
-  <header><strong>Scanner Ultimate Test</strong> — try BarcodeDetector / html5-qrcode / preview</header>
+  <div id="top"><strong>Pick Logger</strong> — Scan, Manual serial & Photo</div>
 
   <div id="controls">
-    <button id="startBtn">Start</button>
-    <button id="stopBtn">Stop</button>
-    <label>Camera: <select id="camSelect"></select></label>
-    <label>Mode: <select id="mode"><option value="scan">Scan</option><option value="manual">Manual</option></select></label>
-    <input id="manualInput" placeholder="manual code" style="width:160px">
+    <label>Technician: <input id="tech" placeholder="Your name"></label>
+    <label>Action:
+      <select id="action"><option value="Taken">Taken</option><option value="Returned">Returned</option></select>
+    </label>
+    <label>Mode:
+      <select id="mode"><option value="scan">Scan</option><option value="manual">Manual+Photo</option></select>
+    </label>
+    <button id="loadLib">Load scanner lib (local)</button>
+    <button id="listCams">List cameras</button>
+    <select id="camSelect" style="min-width:160px"></select>
+    <button id="startCam">Start camera</button>
+    <button id="stopCam">Stop camera</button>
+    <button id="clearAll">Clear list</button>
+    <button id="shareBtn">Share summary</button>
   </div>
 
-  <div id="reader">camera preview</div>
+  <div id="reader">Camera preview will appear here (allow camera)</div>
 
   <div style="padding:8px">
-    <div>Scans: <span id="scansCount">0</span></div>
-    <div id="lastScan"></div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <div>
+        <input id="manualCode" placeholder="Type serial here (manual mode)" style="width:220px">
+      </div>
+      <div>
+        <input id="photoInput" accept="image/*" type="file" capture="environment" style="display:inline-block">
+      </div>
+      <div>
+        <button id="addManual">Add manual</button>
+      </div>
+    </div>
   </div>
+
+  <div id="list"></div>
 
   <div id="debug">
     <div><strong>Debug</strong></div>
     <div id="dbg-status">status: idle</div>
+    <div id="dbg-cameras">cameras: unknown</div>
     <div id="dbg-msg"></div>
-    <pre id="dbg-console"></pre>
+    <pre id="dbg-console" style="max-height:120px;overflow:auto;background:#fff;padding:6px;border:1px solid #eee"></pre>
   </div>
 
+<!-- local copy of html5-qrcode must be in same folder -->
+<script src="html5-qrcode.min.js"></script>
+
 <script>
-const dbgStatus = id('dbg-status'), dbgMsg = id('dbg-msg'), dbgConsole = id('dbg-console');
-const reader = id('reader'), camSelect = id('camSelect'), startBtn = id('startBtn'), stopBtn = id('stopBtn');
-const scansCountEl = id('scansCount'), lastScanEl = id('lastScan');
-let html5Q = null, rawStream = null, detector = null;
-let scans = 0;
+/* ================== CONFIG ==================
+ * If you want automatic server logging (Google Sheet) set your Apps Script Web App URL here.
+ * Otherwise leave as empty string "" and the page will use WhatsApp/text fallback.
+ */
+const APPS_SCRIPT_URL = ""; // e.g. "https://script.google.com/macros/s/ABC123/exec"
+/* ============================================ */
 
-function id(s){ return document.getElementById(s); }
-function log(s,m){ dbgStatus.textContent = 'status: ' + s; dbgMsg.textContent = m||''; dbgConsole.textContent = (new Date().toLocaleTimeString()) + ' | ' + s + (m? (' — '+m):'') + "\n" + dbgConsole.textContent; console.log(s,m); }
+function logDbg(s, camerasText, msg) {
+  document.getElementById('dbg-status').textContent = 'status: ' + s;
+  document.getElementById('dbg-cameras').textContent = 'cameras: ' + (camerasText || '-');
+  document.getElementById('dbg-msg').textContent = msg || '';
+  const consoleEl = document.getElementById('dbg-console');
+  consoleEl.textContent = (new Date().toLocaleTimeString()) + " | " + s + (msg ? " — " + msg : "") + "\n" + consoleEl.textContent;
+  console.log('DBG', s, camerasText, msg);
+}
 
-async function enumerateCameras(){
-  try{
-    const devs = await navigator.mediaDevices.enumerateDevices();
-    const vids = devs.filter(d=>d.kind==='videoinput');
+let html5QrCode = null;
+let rawStream = null;
+let cameraStarted = false;
+let items = {}; // code -> {qty, photos:[]}
+
+// DOM refs
+const readerEl = document.getElementById('reader');
+const camSelect = document.getElementById('camSelect');
+const listEl = document.getElementById('list');
+const modeEl = document.getElementById('mode');
+const manualInput = document.getElementById('manualCode');
+const photoInput = document.getElementById('photoInput');
+
+function renderList(){
+  listEl.innerHTML = '';
+  Object.keys(items).forEach(k=>{
+    const it = items[k];
+    const r = document.createElement('div'); r.className='row';
+    r.innerHTML = `<div><strong>${k}</strong></div><div>x${it.qty}</div>`;
+    if(it.photos && it.photos.length){
+      it.photos.forEach(p=>{
+        const img = document.createElement('img'); img.src=p; img.className='thumb';
+        r.appendChild(img);
+      });
+    }
+    const rem = document.createElement('button'); rem.textContent='−'; rem.addEventListener('click', ()=>{ delete items[k]; renderList(); });
+    r.appendChild(rem);
+    listEl.appendChild(r);
+  });
+}
+
+function addItem(code, photoDataURL){
+  code = String(code || '').trim();
+  if(!code) return;
+  if(!items[code]) items[code] = {qty:0, photos:[]};
+  items[code].qty += 1;
+  if(photoDataURL) items[code].photos.push(photoDataURL);
+  renderList();
+}
+
+async function listCamerasHtml5() {
+  try {
+    if(!window.Html5Qrcode) { logDbg('lib-missing','', 'Html5Qrcode not loaded'); return []; }
+    const cams = await Html5Qrcode.getCameras();
+    if(!cams || cams.length===0) { logDbg('no-cameras','', 'Html5Qrcode returned none'); return []; }
+    logDbg('cameras-found', cams.length + ' camera(s)', '');
     camSelect.innerHTML = '';
-    vids.forEach(v=>{ const o=document.createElement('option'); o.value = v.deviceId; o.text = v.label || ('camera '+(camSelect.length+1)); camSelect.appendChild(o); });
-    log('cameras listed', vids.length + ' video inputs');
-  }catch(e){ log('enum error', e && e.message ? e.message : e); }
+    cams.forEach(c=> {
+      const opt = document.createElement('option'); opt.value = c.id; opt.text = c.label || ('camera ' + (camSelect.length+1));
+      camSelect.appendChild(opt);
+    });
+    return cams;
+  } catch(err) {
+    logDbg('list-error','', String(err));
+    return [];
+  }
 }
 
-async function startPreview(deviceId){
-  stopAll();
-  try{
-    const constraints = deviceId ? { video: { deviceId: { exact: deviceId } } } : { video: { facingMode: 'environment' } };
-    const stream = await navigator.mediaDevices.getUserMedia(constraints);
-    rawStream = stream;
-    reader.innerHTML = '';
-    const v = document.createElement('video');
-    v.autoplay = true; v.playsInline = true; v.muted = true; v.srcObject = stream; v.style.maxWidth='100%';
-    reader.appendChild(v);
-    log('raw preview started','video element inserted');
-    return v;
-  }catch(e){ log('preview fail', e && e.message ? e.message : e); throw e; }
-}
-
-async function stopAll(){
-  if(html5Q){ try{ await html5Q.stop(); }catch(e){} html5Q = null; }
-  if(rawStream){ rawStream.getTracks().forEach(t=>t.stop()); rawStream=null; }
-  reader.innerHTML = 'camera preview';
-  log('stopped','all streams stopped');
-}
-
-async function tryBarcodeDetector(videoEl){
-  if(!('BarcodeDetector' in window)){
-    log('BarcodeDetector not available','native API not supported');
+async function startHtml5Camera(camId) {
+  try {
+    if(!window.Html5Qrcode) { logDbg('start-fail','', 'Html5Qrcode missing'); return false; }
+    if(!html5QrCode) html5QrCode = new Html5Qrcode("reader");
+    const cfg = { fps: 8, qrbox: { width: Math.min(window.innerWidth, 320), height: Math.min(200, window.innerHeight/2) }, formatsToSupport: ["ean_13","ean_8","code_128","upc_a","upc_e","code_39","code_93"] };
+    await html5QrCode.start(camId, cfg,
+      (decoded, res) => { addItem(decoded); },
+      (err)=>{ /* scan errors ignored */ });
+    cameraStarted = true;
+    logDbg('scanner-running','', 'html5-qrcode running');
+    return true;
+  } catch(e) {
+    logDbg('scanner-start-error','', String(e));
     return false;
   }
-  try{
-    const supported = await BarcodeDetector.getSupportedFormats();
-    log('BarcodeDetector supported formats', supported.join(', '));
-    detector = new BarcodeDetector({formats: supported});
-    // scanning loop
-    const scanLoop = async ()=>{
-      if(!videoEl || videoEl.paused || videoEl.ended) return;
-      try{
-        const barcodes = await detector.detect(videoEl);
-        if(barcodes && barcodes.length>0){
-          barcodes.forEach(b => { scans++; scansCountEl.textContent = scans; lastScanEl.textContent = '→ ' + b.rawValue; log('detected', b.rawValue); });
-        }
-      }catch(e){ /*ignore*/ }
-      requestAnimationFrame(scanLoop);
-    };
-    scanLoop();
-    return true;
-  }catch(e){ log('BarcodeDetector error', e && e.message ? e.message : e); return false; }
 }
 
-async function tryHtml5Qrcode(deviceId){
-  try{
-    if(!window.Html5Qrcode){
-      // load dynamically
-      await new Promise((res, rej)=>{
-        const s=document.createElement('script'); s.src='https://unpkg.com/html5-qrcode@2.3.8/minified/html5-qrcode.min.js';
-        s.onload=res; s.onerror=()=>rej(new Error('CDN load fail')); document.head.appendChild(s);
-      });
-      log('html5-qrcode loaded','from CDN');
-    }
-    html5Q = new Html5Qrcode(/* element id or element */ 'reader');
-    await html5Q.start(deviceId || { facingMode: 'environment' }, { fps: 8, qrbox: { width: 250 } },
-      (text)=>{ scans++; scansCountEl.textContent = scans; lastScanEl.textContent = '→ ' + text; log('html5 decoded', text); },
-      (err)=>{ /* scanning errors */ });
-    log('html5-qrcode running','scanner active');
-    return true;
-  }catch(e){ log('html5 start fail', e && e.message ? e.message : e); return false; }
+async function stopHtml5Camera() {
+  try {
+    if(html5QrCode && cameraStarted) { await html5QrCode.stop(); cameraStarted=false; logDbg('scanner-stopped','', ''); }
+  } catch(e){ console.warn(e); }
 }
 
-startBtn.addEventListener('click', async ()=>{
-  log('start pressed','initializing');
-  scans = 0; scansCountEl.textContent = scans; lastScanEl.textContent = '';
-  try{
-    await enumerateCameras();
-    // prefer BarcodeDetector path if available + preview
-    const vid = await startPreview(camSelect.value || null);
-    // try BarcodeDetector first
-    const bdok = await tryBarcodeDetector(vid);
-    if(bdok){ log('using BarcodeDetector','native'); return; }
-    // else try html5
-    const hqok = await tryHtml5Qrcode(camSelect.value || null);
-    if(hqok) return;
-    // else fallback: keep raw preview and inform user
-    log('fallback raw preview active','no scanner available — raw preview running');
-  }catch(e){
-    log('start error', e && e.message ? e.message : e);
+async function startRawPreview() {
+  try {
+    if(rawStream) { logDbg('raw-already','', 'raw stream active'); return true; }
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio:false });
+    rawStream = stream;
+    readerEl.innerHTML = '';
+    const v = document.createElement('video'); v.autoplay = true; v.playsInline = true; v.muted = true;
+    v.srcObject = stream;
+    v.style.maxWidth='100%';
+    readerEl.appendChild(v);
+    const trackLabels = stream.getTracks().map(t=>t.label).join(', ');
+    logDbg('raw preview started', '', 'video element inserted — tracks: ' + trackLabels);
+    return true;
+  } catch(err) {
+    logDbg('raw failed','', String(err));
+    return false;
+  }
+}
+
+async function stopRawPreview(){
+  try {
+    if(rawStream){ rawStream.getTracks().forEach(t=>t.stop()); rawStream=null; logDbg('raw-stopped','', ''); readerEl.innerText='Camera preview stopped'; }
+  } catch(e){ console.warn(e); }
+}
+
+async function startCameraFlow(selectedCamId) {
+  await stopHtml5Camera(); await stopRawPreview();
+  const startedHtml5 = await startHtml5Camera(selectedCamId);
+  if(startedHtml5) return;
+  await startRawPreview();
+}
+
+// UI wiring
+document.getElementById('loadLib').addEventListener('click', async ()=>{
+  // This will just confirm local script loaded (we included it with <script src="html5-qrcode.min.js"></script>)
+  if(window.Html5Qrcode) { logDbg('lib-loaded','', 'Html5Qrcode available'); } else { logDbg('lib-missing','', 'html5-qrcode local not found — put html5-qrcode.min.js in same folder'); }
+});
+
+document.getElementById('listCams').addEventListener('click', async ()=>{
+  logDbg('listing','', 'requesting cameras...');
+  if(window.Html5Qrcode) {
+    const cams = await listCamerasHtml5();
+    if(cams.length>0) return;
+  }
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const videoInputs = devices.filter(d=>d.kind === 'videoinput');
+    camSelect.innerHTML = '';
+    videoInputs.forEach(d=>{
+      const opt = document.createElement('option'); opt.value = d.deviceId; opt.text = d.label || ('camera ' + (camSelect.length+1));
+      camSelect.appendChild(opt);
+    });
+    logDbg('enum-devices', videoInputs.length + ' cameras found', '');
+  } catch(e){
+    logDbg('enum-failed','', String(e));
   }
 });
 
-stopBtn.addEventListener('click', async ()=>{ await stopAll(); });
-window.addEventListener('load', ()=>{ log('page loaded', navigator.userAgent); enumerateCameras(); });
+document.getElementById('startCam').addEventListener('click', async ()=>{
+  const camId = camSelect.value || undefined;
+  if(!camId) { logDbg('no-cam-selected','', 'select a camera or press List cameras'); }
+  logDbg('starting','', 'starting camera with id: ' + (camId || 'default'));
+  await startCameraFlow(camId);
+});
 
-</script>
-</body>
-</html>
+document.getElementById('stopCam').addEventListener('click', async ()=>{ await stopHtml5Camera(); await stopRawPreview(); });
+
+document.getElementById('addManual').addEventListener('click', ()=>{
+  const code = manualInput.value.trim(); if(!code){ alert('Type serial'); return; }
+  if(photoInput.files && photoInput.files[0]) {
+    const f = photoInput.files[0];
+    const r = new FileReader();
+    r.onload = e => { addItem(code, e.target.result); manualInput.value=''; photoInput.value=''; };
+    r.readAsDataURL(f);
+  } else { addItem(code); manualInput.value=''; }
+});
+
+document.getElementById('clearAll').addEventListener('click', ()=>{ if(confirm('Clear list?')){ items = {}; renderList(); } });
+
+async function postToServer(payload) {
+  if(!APPS_SCRIPT_URL) return { status: "no-server" };
+  try {
+    const resp = await fetch(APPS_SCRIPT_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const result = await resp.json();
+    return result;
+  } catch(e) {
+    console.error("POST failed", e);
+    return { status: "error", message: e.toString() };
+  }
+}
+
+document.getElementById('shareBtn').addEventListener('click', async ()=>{
+  if(Object.keys(items).length===0){ alert('No items scanned'); return; }
+  const tech = document.getElementById('tech').value || 'Unknown';
+  const action = document.getElementById('action').value || 'Taken';
+  const now = new Date().toISOString();
+  const itemsPayload = [];
+  for(const k of Object.keys(items)){
+    itemsPayload.push({ code: k, qty: items[k].qty, photoDataUrl: (items[k].photos && items[k].photos.length) ? items[k].photos[0] : "" });
+  }
+  const payload = { technician: tech, action: action, timestamp: now, items: itemsPayload, note: "" };
+  logDbg('sending','', 'posting payload to server (if configured)...');
+  document.getElementById('shareBtn').textContent = "Sending...";
+  const serverResult = await postToServer(payload);
+  document.getElementById('shareBtn').textContent = "Share summary";
+  if(serverResult && serverResult.status === "ok") {
+    alert('Sent to sheet successfully');
+    items = {}; renderList(); logDbg('sent','', 'server accepted payload');
+    return;
+  } else if(serverResult && serverResult.status === "no-server") {
+    logDbg('no server','', 'opening WhatsApp share as fallback');
+    let text = `TECH: ${tech}\nACTION: ${action}\nTIME: ${new Date().toLocaleString()}\n\nItems:\n`;
+    itemsPayload.forEach(it=> text += `${it.code}  x${it.qty}\n`);
+    if(navigator.share) {
+      try { await navigator.share({ text: text }); items = {}; renderList(); } catch(e){ window.open('https://wa.me/?text=' + encodeURIComponent(text),'_blank'); }
+    } else {
+      window.open('https://wa.me/?text=' + encodeURIComponent(text),'_blank');
+    }
+    return;
+  } else {
+    alert(

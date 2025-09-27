@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Barcode Reader — Web App (embedded html5-qrcode)</title>
+<title>Barcode Reader — Embedded + Diagnostics</title>
 <style>
   body{font-family:Arial,Helvetica,sans-serif;margin:0;padding:0;background:#f3f5f7}
   header{background:#0d47a1;color:#fff;padding:12px}
@@ -20,7 +20,7 @@
 </style>
 </head>
 <body>
-<header><div style="max-width:980px;margin:0 auto">Barcode Reader — Web App (1-D barcodes)</div></header>
+<header><div style="max-width:980px;margin:0 auto">Barcode Reader — Embedded + Diagnostics (1-D)</div></header>
 <div class="wrap">
   <div id="controls">
     <label>Mode:
@@ -47,7 +47,7 @@
 
   <div id="debug">
     <div id="dbg-status">status: idle</div>
-    <pre id="dbg-console" style="max-height:160px;overflow:auto"></pre>
+    <pre id="dbg-console" style="max-height:200px;overflow:auto"></pre>
   </div>
 </div>
 
@@ -56,7 +56,7 @@ var __Html5QrcodeLibrary__;(()=>{var t={449:function(t,e,r){!function(t){"use st
 </script>
 
 <script>
-/* ---------- simple barcode web app (1-D optimized) ---------- */
+/* core app (same as previous) */
 const dbgStatus = document.getElementById('dbg-status');
 const dbgConsole = document.getElementById('dbg-console');
 const reader = document.getElementById('reader');
@@ -73,7 +73,6 @@ function log(s,m='') {
 
 let rawStream = null, html5Q=null, detector=null, scanning=false, seen={}, bdStop=null;
 
-/* render */
 function renderTable(){
   tblBody.innerHTML = '';
   Object.keys(seen).forEach(code=>{
@@ -92,7 +91,6 @@ function addSeen(code){
   renderTable();
 }
 
-/* BarcodeDetector native */
 async function tryBarcodeDetector(videoEl){
   if(!('BarcodeDetector' in window)){ log('BarcodeDetector not available'); return false; }
   try {
@@ -113,7 +111,6 @@ async function tryBarcodeDetector(videoEl){
   } catch(e){ log('BarcodeDetector error', e.message || e); return false; }
 }
 
-/* html5 start (uses embedded library) */
 async function startHtml5(cameraId){
   if(!window.Html5Qrcode){ log('Html5Qrcode not present'); return false; }
   try{
@@ -130,7 +127,6 @@ async function startHtml5(cameraId){
   }catch(e){ log('html5 start failed', e.message || e); return false; }
 }
 
-/* raw preview fallback */
 async function startRaw(cameraId){
   try{
     const constraints = cameraId ? { video:{ deviceId:{ exact: cameraId }, width:{ideal:1280}, height:{ideal:720} } } : { video:{ facingMode:'environment', width:{ideal:1280}, height:{ideal:720} } };
@@ -146,7 +142,6 @@ async function startRaw(cameraId){
   }catch(e){ log('raw preview failed', e.message || e); return null; }
 }
 
-/* enumerate */
 async function listCameras(){
   try{
     const devices = await navigator.mediaDevices.enumerateDevices();
@@ -158,7 +153,6 @@ async function listCameras(){
   }catch(e){ log('enumerate failed', e.message || e); return []; }
 }
 
-/* orchestrator */
 async function startAll(){
   if(scanning) return;
   scanning = true; seen={}; renderTable();
@@ -168,7 +162,6 @@ async function startAll(){
   if(!vEl){ scanning=false; return; }
   const bd = await tryBarcodeDetector(vEl);
   if(bd){ bdStop = bd; log('scanning with BarcodeDetector'); return; }
-  // stop raw and start html5
   if(rawStream){ rawStream.getTracks().forEach(t=>t.stop()); rawStream=null; reader.innerHTML='camera preview'; }
   const h = await startHtml5(chosen);
   if(h){ log('scanning with html5-qrcode'); return; }
@@ -184,7 +177,6 @@ async function stopAll(){
   log('stopped all');
 }
 
-/* UI wiring */
 document.getElementById('listCams').addEventListener('click', ()=> listCameras());
 document.getElementById('startBtn').addEventListener('click', ()=> startAll());
 document.getElementById('stopBtn').addEventListener('click', ()=> stopAll());
@@ -192,5 +184,177 @@ document.getElementById('addManual').addEventListener('click', ()=> { const v=ma
 
 window.addEventListener('load', ()=> { log('page loaded — ready'); listCameras(); });
 </script>
+
+<!-- DIAGNOSTIC SCRIPT (ADDED) -->
+<script>
+(function(){
+  const dbgStatus = document.getElementById('dbg-status') || (function(){
+    const d = document.createElement('div'); d.id='dbg-status'; d.style.display='none'; document.body.appendChild(d); return d;
+  })();
+  const dbgConsole = document.getElementById('dbg-console') || (function(){
+    const p = document.createElement('pre'); p.id='dbg-console'; p.style.maxHeight='200px'; p.style.overflow='auto';
+    p.style.background='#111'; p.style.color='#bada55'; p.style.padding='8px'; p.style.fontSize='12px';
+    const wrap = document.querySelector('.wrap') || document.body;
+    wrap.appendChild(p);
+    return p;
+  })();
+
+  function logDbgLine(level, msg){
+    const ts = new Date().toLocaleTimeString();
+    const line = `${ts} | ${level} | ${msg}`;
+    dbgConsole.textContent = line + "\n" + dbgConsole.textContent;
+    console.log(level, msg);
+  }
+  function logDbg(msg){ logDbgLine('INFO', msg); dbgStatus.textContent = 'status: ' + msg; }
+
+  const controls = document.getElementById('controls') || document.querySelector('.wrap');
+  const diagBar = document.createElement('div');
+  diagBar.style.display='flex'; diagBar.style.gap='8px'; diagBar.style.marginTop='8px'; diagBar.style.flexWrap='wrap';
+
+  const runBtn = document.createElement('button'); runBtn.textContent = 'Run Diagnostics';
+  const quickGumBtn = document.createElement('button'); quickGumBtn.textContent = 'Quick gUM test';
+  const startProbeBtn = document.createElement('button'); startProbeBtn.textContent = 'Probe startAll (5s)';
+  const dumpDevicesBtn = document.createElement('button'); dumpDevicesBtn.textContent = 'Dump devices';
+  const uaBtn = document.createElement('button'); uaBtn.textContent = 'Show UA/Context';
+
+  [runBtn, quickGumBtn, startProbeBtn, dumpDevicesBtn, uaBtn].forEach(b=>{
+    b.style.padding='6px 8px'; b.style.fontSize='0.9rem'; b.style.cursor='pointer';
+    diagBar.appendChild(b);
+  });
+
+  if(controls) controls.parentNode.insertBefore(diagBar, controls.nextSibling);
+
+  async function safeEnumerateDevices(){
+    try {
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      logDbgLine('DEVICES', JSON.stringify(devs.map(d=>({kind:d.kind,label:d.label?d.label:'(hidden)',id:d.deviceId})), null, 2));
+      return devs;
+    } catch(e) {
+      logDbgLine('ERROR', 'enumerateDevices failed — ' + (e && e.message ? e.message : e));
+      return null;
+    }
+  }
+
+  async function checkPermissions(){
+    try {
+      if(!navigator.permissions || !navigator.permissions.query) {
+        logDbgLine('PERM', 'navigator.permissions.query not supported in this browser');
+        return;
+      }
+      for(const name of ['camera']) {
+        try {
+          const p = await navigator.permissions.query({name});
+          logDbgLine('PERM', `permission ${name}: state=${p.state}`);
+        } catch(e){ logDbgLine('PERM', `permission ${name} query unsupported: ${e.message || e}`); }
+      }
+    } catch(e){
+      logDbgLine('PERM', 'permissions check failed: ' + (e && e.message ? e.message : e));
+    }
+  }
+
+  function showUA(){
+    logDbgLine('UA', navigator.userAgent);
+    logDbgLine('CTX', 'isSecureContext=' + (window.isSecureContext ? 'yes' : 'no'));
+    logDbgLine('NAV', 'platform=' + navigator.platform + ' vendor=' + navigator.vendor);
+  }
+
+  async function quickGUMTest(){
+    try {
+      logDbg('Requesting getUserMedia (quick test)... (this is a user-initiated test)');
+      const constraints = { video: { facingMode: "environment", width:{ideal:1280}, height:{ideal:720} }, audio:false };
+      const s = await navigator.mediaDevices.getUserMedia(constraints);
+      logDbgLine('gUM', 'success — tracks: ' + s.getTracks().map(t=>t.label).join('; '));
+      s.getTracks().forEach(t=>t.stop());
+      logDbg('gUM test OK — tracks stopped');
+      return {ok:true};
+    } catch(e){
+      logDbgLine('gUM-ERR', e.name + ' — ' + (e.message || e.toString()));
+      return {ok:false, error:e};
+    }
+  }
+
+  async function checkBarcodeDetector(){
+    if(!('BarcodeDetector' in window)){ logDbgLine('BARCODE', 'BarcodeDetector NOT available'); return; }
+    try {
+      const formats = await BarcodeDetector.getSupportedFormats();
+      logDbgLine('BARCODE', 'BarcodeDetector supported formats: ' + formats.join(', '));
+    } catch(e){
+      logDbgLine('BARCODE-ERR', 'BarcodeDetector.getSupportedFormats error: ' + (e.message || e));
+    }
+  }
+
+  async function checkHtml5(){
+    if(window.Html5Qrcode){
+      logDbgLine('HTML5Q', 'Html5Qrcode detected on window');
+      try {
+        if(typeof Html5Qrcode.getCameras === 'function') {
+          try {
+            const cams = await Html5Qrcode.getCameras();
+            logDbgLine('HTML5Q', `Html5Qrcode.getCameras -> ${cams.length} cameras`);
+            cams.forEach((c,i)=> logDbgLine('HTML5Q-CAM', `#${i} label="${c.label || '(no label)'}" id=${c.id}`));
+          } catch(e){ logDbgLine('HTML5Q-ERR', 'getCameras failed: ' + (e.message || e)); }
+        } else {
+          logDbgLine('HTML5Q', 'Html5Qrcode.getCameras not a function in this build');
+        }
+      } catch(e){
+        logDbgLine('HTML5Q-ERR', e.message || e);
+      }
+    } else {
+      logDbgLine('HTML5Q', 'Html5Qrcode NOT present on window');
+    }
+  }
+
+  async function probeStartAll(){
+    if(typeof window.startAll !== 'function'){
+      logDbgLine('PROBE', 'startAll() non trovata nella pagina');
+      return;
+    }
+    logDbgLine('PROBE', 'Chiamando startAll() per 5s...');
+    try {
+      await window.startAll();
+    } catch(e) {
+      logDbgLine('PROBE-ERR', 'startAll threw: ' + (e.message || e));
+    }
+    setTimeout(async ()=>{
+      try {
+        if(typeof window.stopAll === 'function'){
+          await window.stopAll();
+          logDbgLine('PROBE', 'stopAll() chiamata dopo 5s');
+        } else {
+          logDbgLine('PROBE', 'stopAll() non trovata');
+        }
+      } catch(e){
+        logDbgLine('PROBE-ERR', 'stopAll error: ' + (e.message || e));
+      }
+    }, 5000);
+  }
+
+  async function runDiagnostics(){
+    dbgConsole.textContent = '';
+    logDbg('Running full diagnostics — step-by-step');
+    showUA();
+    await checkPermissions();
+    await safeEnumerateDevices();
+    await checkBarcodeDetector();
+    await checkHtml5();
+    logDbg('Diagnostics completed (run Quick gUM test separately if needed)');
+    logDbgLine('NOTE','Se ci sono errori gUM o permessi, copia tutto il contenuto di questo Debug e incollalo nella chat.');
+  }
+
+  runBtn.addEventListener('click', function(e){ e.preventDefault(); runDiagnostics(); });
+  quickGumBtn.addEventListener('click', function(e){ e.preventDefault(); quickGUMTest(); });
+  startProbeBtn.addEventListener('click', function(e){ e.preventDefault(); probeStartAll(); });
+  dumpDevicesBtn.addEventListener('click', function(e){ e.preventDefault(); safeEnumerateDevices(); });
+  uaBtn.addEventListener('click', function(e){ e.preventDefault(); showUA(); });
+
+  const hint = document.createElement('div');
+  hint.innerHTML = '<div class="muted" style="margin-top:8px">Se dopo i test la camera non parte su iPhone, copia qui il contenuto del Debug (prima 2 righe "status" e le ultime 15 righe) e incollalo nella chat. Farò l\'analisi immediata.</div>';
+  if(controls) controls.parentNode.insertBefore(hint, diagBar.nextSibling);
+
+  logDbg('Diag helper installed — premi "Run Diagnostics" e poi, se serve, "Quick gUM test"');
+})();
+</script>
+<!-- END DIAGNOSTIC SCRIPT -->
+
 </body>
 </html>

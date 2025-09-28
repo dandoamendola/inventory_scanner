@@ -1,4 +1,4 @@
-<!-- index.html -->
+<!-- index.html (EAN-8 disabled; only CODE_128 & EAN_13) -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -198,11 +198,16 @@
     state.controls.selectedDeviceId=sel.value||null;
   }
 
+  // Only CODE_128 and EAN_13
   function buildHints(){
     const hints=new Map();
-    hints.set(DecodeHintType.POSSIBLE_FORMATS,[BarcodeFormat.CODE_128, BarcodeFormat.EAN_13, BarcodeFormat.EAN_8]);
+    hints.set(DecodeHintType.POSSIBLE_FORMATS,[BarcodeFormat.CODE_128, BarcodeFormat.EAN_13]); // EAN_8 removed
     hints.set(DecodeHintType.TRY_HARDER,true);
     state.hints=hints; return hints;
+  }
+
+  function isAllowedFormat(fmt){
+    return fmt === BarcodeFormat.CODE_128 || fmt === BarcodeFormat.EAN_13;
   }
 
   async function startScanner(){
@@ -220,10 +225,12 @@
       const onDecode=(result,err)=>{
         if(state.forceLock) return;
         if(result){
+          const fmt = result.getBarcodeFormat?.();
+          if (!isAllowedFormat(fmt)) { $('#status').textContent='Ignored: EAN-8'; return; }
           const text=result.getText().trim();
           const now=Date.now();
           if(text!==state.lastDecode.text || (now-state.lastDecode.t)>1200){
-            const typeName=fmtName(result.getBarcodeFormat?.());
+            const typeName=fmtName(fmt);
             addScan(text, typeName);
             state.lastDecode={ text, t: now };
             $('#status').textContent=`Read: ${text} (${typeName})`;
@@ -332,8 +339,16 @@
 
     reader.reset(); try{ await video.play?.(); }catch{} state.forceLock=false;
 
-    if(result){ const text=result.getText().trim(); const typeName=fmtName(result.getBarcodeFormat?.()); addScan(text, typeName); $('#status').textContent=`Read: ${text} (${typeName})`; }
-    else { $('#status').textContent='No code in rectangle'; }
+    if(result){
+      const fmt = result.getBarcodeFormat?.();
+      if (!isAllowedFormat(fmt)) { $('#status').textContent='Ignored: EAN-8'; return; }
+      const text=result.getText().trim();
+      const typeName=fmtName(fmt);
+      addScan(text, typeName);
+      $('#status').textContent=`Read: ${text} (${typeName})`;
+    }else{
+      $('#status').textContent='No code in rectangle';
+    }
   }
 
   // === Build rows for Submit (A/E/I) ===
@@ -341,14 +356,14 @@
     const qtyNum=normalizeQty(it.qty);
     const t=String(it.lastType||'').toUpperCase();
     const row=['','','','','','','','',''];
-    if(t==='CODE_128') row[0]=String(it.barcode);                         // A
-    if(t==='EAN_13'||t==='EAN_8'||t==='EAN') row[4]=String(it.barcode);   // E
-    row[8]=qtyNum;                                                        // I (Number)
+    if(t==='CODE_128') row[0]=String(it.barcode);                       // A
+    if(t==='EAN_13')   row[4]=String(it.barcode);                       // E
+    row[8]=qtyNum;                                                      // I (Number)
     return row;
   }
   function buildSheetRows(){
     return Object.values(state.cart)
-      .filter(it=>['CODE_128','EAN_13','EAN_8','EAN'].includes(String(it.lastType).toUpperCase()))
+      .filter(it=>['CODE_128','EAN_13'].includes(String(it.lastType).toUpperCase()))
       .map(buildRow9);
   }
 
@@ -390,14 +405,14 @@
     }
   }
 
-  // === Clear / Manual entry (8 chars => CODE_128; else EAN) ===
+  // === Clear / Manual entry (13 digits => EAN_13; otherwise CODE_128) ===
   function clearAll(){ if(!confirm('Clear the list?')) return; state.cart={}; changed(); }
   function addManual(){
     ensureAudio();
     const code=$('#manualCode').value.trim();
     const qty=normalizeQty($('#manualQty').value||1);
     if(!code) return;
-    const type=(code.length===8)?'CODE_128':'EAN';
+    const type = (/^\\d{13}$/.test(code)) ? 'EAN_13' : 'CODE_128'; // EAN-8 disabled
     if(!state.cart[code]) state.cart[code]={ barcode: code, qty, lastType: type };
     else state.cart[code].qty=normalizeQty(Number(state.cart[code].qty)+qty);
     $('#manualCode').value=''; beep(); changed();

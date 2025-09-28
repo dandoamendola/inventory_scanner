@@ -1,72 +1,60 @@
-<!-- index.html (EAN-8 disabled; only CODE_128 & EAN_13) -->
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Inventory — Scanner</title>
-  <style>
-    :root { --pad: 14px; --radius: 14px; }
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; background: #0b0c10; color: #e6e6e6; }
-    .container { max-width: 420px; margin: 0 auto; } /* phone width */
-    header { padding: var(--pad); display:flex; align-items:center; gap:10px; }
-    header h1 { font-size: 18px; margin:0; font-weight: 600; }
-    main { padding: var(--pad); }
-    .card { background:#15171d; border:1px solid #23262d; border-radius: var(--radius); padding: var(--pad); }
-    video { width: 100%; border-radius: 12px; background:#000; }
-    .row { display:flex; gap:10px; align-items:center; }
-    .row > * { flex:1; }
-    .btn { appearance:none; border:1px solid #2c3038; background:#1f232b; color:#fff; padding:10px 14px; border-radius:10px; cursor:pointer; }
-    .btn:active { transform: translateY(1px); }
-    .btn.primary { background:#4b7bec; border-color:#4b7bec; }
-    .btn.ghost { background:transparent; }
-    .muted { opacity: .75; }
-    .list { margin-top: 10px; }
-    .item { display:grid; grid-template-columns: 1fr auto auto auto; gap:10px; align-items:center; padding:10px; border-bottom:1px solid #23262d; }
-    .qtyBox { display:flex; gap:6px; align-items:center; }
-    .qty { min-width: 44px; text-align:center; padding:8px; border-radius:10px; border:1px solid #2c3038; background:#101218; color:#fff; }
-    .pill { font-size:12px; padding:4px 8px; border:1px solid #2c3038; border-radius:999px; }
-    .status { margin-top:8px; font-size:13px; min-height: 1.4em; }
-    .danger { color: #ff6b6b; }
-    .ok { color: #1dd1a1; }
-    .grid { display:grid; gap:10px; }
-    .kpi { display:flex; justify-content:space-between; font-size:13px; opacity:.85; }
-    .hidden { display:none; }
-    .hr { height:1px; background:#23262d; margin:10px 0; }
-
-    /* Narrow preview + overlay window */
-    .previewWrap { position: relative; width: 100%; height: 140px; border-radius: 12px; overflow: hidden; background:#000; }
-    #preview { position:absolute; inset:0; width:100%; height:100%; object-fit: cover; }
-    .overlay { position:absolute; inset:0; pointer-events:auto; display:flex; align-items:center; justify-content:center; }
-    .overlay .guide {
-      width: 82%; height: 34%;
-      border: 2px solid rgba(255,255,255,.95);
-      border-radius: 10px;
-      box-shadow: 0 0 0 2000px rgba(0,0,0,.45);
-      outline: 1px solid rgba(0,0,0,.35);
-    }
-    /* Shutter flash */
-    .shutter { position:absolute; inset:0; background:#fff; opacity:0; pointer-events:none; transition:opacity 140ms ease; }
-    .shutter.active { opacity:0.85; }
-  </style>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Inventory — Scanner</title>
+<style>
+  :root { --pad:14px; --radius:14px; }
+  body { font-family: system-ui,-apple-system,Segoe UI,Roboto,sans-serif; margin:0; background:#0b0c10; color:#e6e6e6; }
+  .container { max-width:420px; margin:0 auto; }
+  header { padding:var(--pad); display:flex; align-items:center; gap:10px; }
+  header h1 { font-size:18px; margin:0; font-weight:600; }
+  main { padding:var(--pad); }
+  .card { background:#15171d; border:1px solid #23262d; border-radius:var(--radius); padding:var(--pad); }
+  video { width:100%; border-radius:12px; background:#000; }
+  .row { display:flex; gap:10px; align-items:center; }
+  .row > * { flex:1; }
+  .btn { appearance:none; border:1px solid #2c3038; background:#1f232b; color:#fff; padding:10px 14px; border-radius:10px; cursor:pointer; }
+  .btn.primary { background:#4b7bec; border-color:#4b7bec; }
+  .btn:active { transform:translateY(1px); }
+  .muted { opacity:.75; }
+  .list { margin-top:10px; }
+  .item { display:grid; grid-template-columns:1fr auto auto auto; gap:10px; align-items:center; padding:10px; border-bottom:1px solid #23262d; }
+  .qtyBox { display:flex; gap:6px; align-items:center; }
+  .qty { min-width:44px; text-align:center; padding:8px; border-radius:10px; border:1px solid #2c3038; background:#101218; color:#fff; }
+  .pill { font-size:12px; padding:4px 8px; border:1px solid #2c3038; border-radius:999px; }
+  .status { margin-top:8px; font-size:13px; min-height:1.4em; }
+  .ok { color:#1dd1a1; } .danger { color:#ff6b6b; }
+  .grid { display:grid; gap:10px; }
+  .kpi { display:flex; justify-content:space-between; font-size:13px; opacity:.85; }
+  .hidden { display:none; }
+  .hr { height:1px; background:#23262d; margin:10px 0; }
+  /* compact preview + overlay */
+  .previewWrap { position:relative; width:100%; height:140px; border-radius:12px; overflow:hidden; background:#000; }
+  #preview { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+  .overlay { position:absolute; inset:0; pointer-events:auto; display:flex; align-items:center; justify-content:center; }
+  .overlay .guide { width:82%; height:34%; border:2px solid rgba(255,255,255,.95); border-radius:10px; box-shadow:0 0 0 2000px rgba(0,0,0,.45); outline:1px solid rgba(0,0,0,.35); }
+  .shutter { position:absolute; inset:0; background:#fff; opacity:0; pointer-events:none; transition:opacity 140ms ease; }
+  .shutter.active { opacity:0.85; }
+</style>
 </head>
 <body>
 <div class="container">
-  <header>
-    <h1>Inventory — Scanner</h1>
-  </header>
+  <header><h1>Inventory — Scanner</h1></header>
 
   <main class="grid">
     <section class="card">
       <div class="grid">
         <label class="muted">Device / User</label>
-        <input id="user" class="qty" style="text-align:left; min-width:unset;" placeholder="e.g. Marco" />
+        <input id="user" class="qty" style="text-align:left;min-width:unset;" placeholder="e.g. Marco"/>
       </div>
+
       <div class="hr"></div>
 
       <div class="grid">
         <label class="muted">Camera</label>
-        <select id="camera" class="qty" style="text-align:left; min-width:unset;"></select>
+        <select id="camera" class="qty" style="text-align:left;min-width:unset;"></select>
 
         <div class="previewWrap" id="wrap">
           <video id="preview" playsinline muted autoplay></video>
@@ -77,7 +65,7 @@
         <div class="row">
           <button id="start" class="btn primary">Start</button>
           <button id="stop" class="btn">Stop</button>
-          <button id="torch" class="btn ghost">Torch</button>
+          <button id="torch" class="btn">Torch</button>
           <button id="force" class="btn">Scan now</button>
         </div>
         <div class="status" id="status">Ready</div>
@@ -87,8 +75,8 @@
       <div class="grid">
         <label class="muted">Manual entry</label>
         <div class="row">
-          <input id="manualCode" class="qty" placeholder="Barcode" />
-          <input id="manualQty" class="qty" type="number" step="0.5" min="0.5" value="1" />
+          <input id="manualCode" class="qty" placeholder="Barcode"/>
+          <input id="manualQty" class="qty" type="number" step="0.5" min="0.5" value="1"/>
           <button id="addManual" class="btn">Add</button>
         </div>
       </div>
@@ -109,19 +97,19 @@
   </main>
 </div>
 
-<!-- ZXing UMDs -->
 <script src="https://unpkg.com/@zxing/library@0.21.2/umd/index.min.js"></script>
 <script src="https://unpkg.com/@zxing/browser@0.1.5/umd/zxing-browser.min.js"></script>
 <script>
-  // === CONFIG: your production /exec URL ===
+  // === CONFIG ===
   const GOOGLE_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxRiifyYgLi9EBm0CWVdngewCj8TenSlEs157mUNw19_bP30jGFYdmRa3laruE8FmzM/exec';
+  const COOLDOWN_MS = 1500; // 1.5s
 
-  // === Audio beep ===
+  // Beep
   let audioCtx=null;
   function ensureAudio(){ try{ if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended') audioCtx.resume(); }catch{} }
   function beep(freq=1800, ms=120, vol=0.06){ try{ ensureAudio(); const ctx=audioCtx; if(!ctx) return; const o=ctx.createOscillator(), g=ctx.createGain(); o.type='square'; o.frequency.value=freq; g.gain.value=vol; o.connect(g); g.connect(ctx.destination); o.start(); o.stop(ctx.currentTime + ms/1000);}catch{} }
 
-  // === State & utils ===
+  // State
   const STORAGE_KEY='inv_cart_v1';
   const $=(s)=>document.querySelector(s);
   function normalizeQty(v){ let n=Number(v); if(!Number.isFinite(n)) n=1; n=Math.max(0.5,n); n=Math.round(n*2)/2; const f=Math.abs(n-Math.trunc(n)); if(f!==0 && Math.abs(f-0.5)>1e-9) n=Math.trunc(n)+0.5; return n; }
@@ -170,17 +158,30 @@
 
   function addScan(barcode,type){
     if(!barcode) return;
+    // Cooldown
+    const now=Date.now();
+    if (barcode===state.lastDecode.text && (now - state.lastDecode.t) < COOLDOWN_MS) return;
+    state.lastDecode = { text: barcode, t: now };
+
     if(!state.cart[barcode]) state.cart[barcode]={ barcode, qty:1, lastType:type||'' };
     else state.cart[barcode].qty=normalizeQty(Number(state.cart[barcode].qty)+1);
     beep(); navigator.vibrate?.(20);
     changed();
   }
 
-  // === Scanner ===
+  // ZXing
   const { BrowserMultiFormatReader } = ZXingBrowser;
   const { BarcodeFormat, DecodeHintType } = ZXing;
-  function fmtName(fmt){ for(const [k,v] of Object.entries(BarcodeFormat)) if(v===fmt) return k; return String(fmt); }
   const benignErr=(err)=>!!(err && (/No MultiFormat Readers were able|checksum|format/i.test(String(err.message||err))));
+
+  function isAllowedFormat(fmt){
+    return fmt === BarcodeFormat.CODE_128 || fmt === BarcodeFormat.EAN_13; // EAN_8 disabled
+  }
+  function isValidContent(fmt, text){
+    if (fmt === BarcodeFormat.EAN_13) return /^\d{13}$/.test(text);
+    if (fmt === BarcodeFormat.CODE_128) return /^[0-9A-Z]+$/.test(text); // strict: digits+uppercase only
+    return false;
+  }
 
   async function listCameras(){
     const tmp=await navigator.mediaDevices.getUserMedia({ video:true, audio:false });
@@ -198,16 +199,11 @@
     state.controls.selectedDeviceId=sel.value||null;
   }
 
-  // Only CODE_128 and EAN_13
   function buildHints(){
     const hints=new Map();
-    hints.set(DecodeHintType.POSSIBLE_FORMATS,[BarcodeFormat.CODE_128, BarcodeFormat.EAN_13]); // EAN_8 removed
+    hints.set(DecodeHintType.POSSIBLE_FORMATS,[BarcodeFormat.CODE_128, BarcodeFormat.EAN_13]); // only these two
     hints.set(DecodeHintType.TRY_HARDER,true);
     state.hints=hints; return hints;
-  }
-
-  function isAllowedFormat(fmt){
-    return fmt === BarcodeFormat.CODE_128 || fmt === BarcodeFormat.EAN_13;
   }
 
   async function startScanner(){
@@ -226,15 +222,11 @@
         if(state.forceLock) return;
         if(result){
           const fmt = result.getBarcodeFormat?.();
-          if (!isAllowedFormat(fmt)) { $('#status').textContent='Ignored: EAN-8'; return; }
-          const text=result.getText().trim();
-          const now=Date.now();
-          if(text!==state.lastDecode.text || (now-state.lastDecode.t)>1200){
-            const typeName=fmtName(fmt);
-            addScan(text, typeName);
-            state.lastDecode={ text, t: now };
-            $('#status').textContent=`Read: ${text} (${typeName})`;
-          }
+          const text = result.getText().trim();
+          if (!isAllowedFormat(fmt)) { $('#status').textContent='Ignored: unsupported symbology'; return; }
+          if (!isValidContent(fmt, text)) { $('#status').textContent='Ignored: suspicious content'; return; }
+          addScan(text, Object.keys(BarcodeFormat).find(k=>BarcodeFormat[k]===fmt));
+          $('#status').textContent=`Read: ${text}`;
         }else if(err && !benignErr(err)){
           $('#status').innerHTML=`<span class="danger">Scanner error: ${String(err.message||err)}</span>`;
         }else{
@@ -243,15 +235,24 @@
       };
 
       try{
-        if(deviceId){ await codeReader.decodeFromVideoDevice(deviceId, video, onDecode); $('#status').textContent='Scanner running'; return; }
+        if(deviceId){
+          await codeReader.decodeFromVideoDevice(deviceId, video, onDecode);
+          $('#status').textContent='Scanner running';
+          return;
+        }
         throw new Error('No deviceId');
       }catch{
         try{
-          await codeReader.decodeFromConstraints({ video:{ facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080} }, audio:false }, video, onDecode);
-          $('#status').textContent='Scanner running'; return;
+          await codeReader.decodeFromConstraints({
+            video:{ facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080}, frameRate:{ ideal:30, max:60 } },
+            audio:false
+          }, video, onDecode);
+          $('#status').textContent='Scanner running';
+          return;
         }catch{
           await codeReader.decodeFromVideoDevice(null, video, onDecode);
-          $('#status').textContent='Scanner running'; return;
+          $('#status').textContent='Scanner running';
+          return;
         }
       }
     }catch(e){
@@ -283,7 +284,7 @@
     }catch{ $('#status').textContent='Unable to toggle torch'; }
   }
 
-  // === Force scan (ROI + enhanced + fallbacks) ===
+  // Force scan (same acceptance rules)
   function shutterFlash(){ const s=$('#shutter'); s.classList.add('active'); setTimeout(()=>s.classList.remove('active'),140); }
   function getRoiFromOverlay(){
     const video=$('#preview'), wrap=$('#wrap'), guide=$('#overlay .guide');
@@ -320,7 +321,6 @@
     ensureAudio();
     if(!state.scanning){ $('#status').textContent='Start the scanner first'; return; }
     const video=$('#preview'); if(!video.videoWidth){ $('#status').textContent='Camera not ready…'; return; }
-
     state.forceLock=true; shutterFlash(); try{ video.pause?.(); }catch{}
     const reader=new BrowserMultiFormatReader(state.hints||buildHints());
     const roi=getRoiFromOverlay(); let result=null;
@@ -341,24 +341,23 @@
 
     if(result){
       const fmt = result.getBarcodeFormat?.();
-      if (!isAllowedFormat(fmt)) { $('#status').textContent='Ignored: EAN-8'; return; }
-      const text=result.getText().trim();
-      const typeName=fmtName(fmt);
-      addScan(text, typeName);
-      $('#status').textContent=`Read: ${text} (${typeName})`;
+      const text = result.getText().trim();
+      if (!isAllowedFormat(fmt) || !isValidContent(fmt, text)) { $('#status').textContent='Ignored: suspicious'; return; }
+      addScan(text, Object.keys(BarcodeFormat).find(k=>BarcodeFormat[k]===fmt));
+      $('#status').textContent=`Read: ${text}`;
     }else{
       $('#status').textContent='No code in rectangle';
     }
   }
 
-  // === Build rows for Submit (A/E/I) ===
+  // Build rows for submit (A/E/I)
   function buildRow9(it){
     const qtyNum=normalizeQty(it.qty);
     const t=String(it.lastType||'').toUpperCase();
     const row=['','','','','','','','',''];
-    if(t==='CODE_128') row[0]=String(it.barcode);                       // A
-    if(t==='EAN_13')   row[4]=String(it.barcode);                       // E
-    row[8]=qtyNum;                                                      // I (Number)
+    if(t==='CODE_128') row[0]=String(it.barcode);      // A
+    if(t==='EAN_13')   row[4]=String(it.barcode);      // E
+    row[8]=qtyNum;                                     // I (Number)
     return row;
   }
   function buildSheetRows(){
@@ -367,7 +366,6 @@
       .map(buildRow9);
   }
 
-  // === Submit (auto-clear, no confirmation) ===
   function validateRows(rows){
     let valid=[], invalid=0;
     for(const r of rows){
@@ -405,20 +403,22 @@
     }
   }
 
-  // === Clear / Manual entry (13 digits => EAN_13; otherwise CODE_128) ===
   function clearAll(){ if(!confirm('Clear the list?')) return; state.cart={}; changed(); }
+  // Manual: 13 digits ⇒ EAN_13; else CODE_128 (EAN-8 disabled)
   function addManual(){
     ensureAudio();
     const code=$('#manualCode').value.trim();
     const qty=normalizeQty($('#manualQty').value||1);
     if(!code) return;
-    const type = (/^\\d{13}$/.test(code)) ? 'EAN_13' : 'CODE_128'; // EAN-8 disabled
+    const type=(/^\d{13}$/.test(code)) ? 'EAN_13' : 'CODE_128';
+    if(type==='EAN_13' && !/^\d{13}$/.test(code)) return;
+    if(type==='CODE_128' && !/^[0-9A-Z]+$/.test(code)) return; // enforce same filter
     if(!state.cart[code]) state.cart[code]={ barcode: code, qty, lastType: type };
     else state.cart[code].qty=normalizeQty(Number(state.cart[code].qty)+qty);
     $('#manualCode').value=''; beep(); changed();
   }
 
-  // === Wiring ===
+  // Wiring
   $('#camera').addEventListener('change',(e)=>{ state.controls.selectedDeviceId=e.target.value; if(state.scanning){ stopScanner(); startScanner(); } });
   $('#start').onclick=startScanner;
   $('#stop').onclick=stopScanner;

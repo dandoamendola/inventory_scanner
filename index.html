@@ -170,4 +170,300 @@
           <button class="btn danger" data-act="del">Remove</button>
         `;
         row.querySelector('[data-act="inc"]').onclick = () => { it.qty = normalizeQty(Number(it.qty) + 1); changed(); };
-        row.querySelector
+        row.querySelector('[data-act="dec"]').onclick = () => { it.qty = normalizeQty(Math.max(0.5, Number(it.qty) - 1)); changed(); };
+        row.querySelector('[data-role="qty"]').onchange = (e) => { it.qty = normalizeQty(e.target.value); e.target.value = it.qty; changed(); };
+        row.querySelector('[data-act="del"]').onclick = () => { delete state.cart[it.barcode]; changed(); };
+        list.appendChild(row);
+      }
+      $('#kCount').textContent = String(totalItems());
+      $('#kQty').textContent = String(totalQty());
+    }
+
+    function changed() { saveCart(); renderList(); }
+
+    function addScan(barcode, type) {
+      if (!barcode) return;
+      if (!state.cart[barcode]) state.cart[barcode] = { barcode, qty: 1, lastType: type || '' };
+      else state.cart[barcode].qty = normalizeQty(Number(state.cart[barcode].qty) + 1);
+      navigator.vibrate?.(20);
+      changed();
+    }
+
+    // ==== Scanner ====
+    const { BrowserMultiFormatReader } = ZXingBrowser;
+    const { BarcodeFormat, DecodeHintType } = ZXing;
+
+    function formatToString(fmt) {
+      for (const [k, v] of Object.entries(BarcodeFormat)) if (v === fmt) return k;
+      return String(fmt);
+    }
+
+    const benignErrNames = new Set(['NotFoundException', 'ChecksumException', 'FormatException']);
+    function isBenignZXingError(err) {
+      if (!err) return false;
+      if (benignErrNames.has(err.name)) return true;
+      const msg = String(err && (err.message || err));
+      return /No MultiFormat Readers were able to detect the code|checksum|format/i.test(msg);
+    }
+
+    async function listCameras() {
+      const tmp = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      tmp.getTracks().forEach(t => t.stop());
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      return devices.filter(d => d.kind === 'videoinput');
+    }
+
+    function pickRear(cams) {
+      const byHint = cams.find(c => /back|rear|environment/i.test(c.label || ''));
+      return byHint ? byHint.deviceId : (cams.at(-1)?.deviceId || cams[0]?.deviceId || null);
+    }
+
+    async function populateCameras() {
+      const sel = $('#camera'); sel.innerHTML = '';
+      const cams = await listCameras();
+      cams.forEach((c, i) => {
+        const opt = document.createElement('option');
+        opt.value = c.deviceId; opt.textContent = c.label || `Camera ${i + 1}`;
+        sel.appendChild(opt);
+      });
+      const prefer = pickRear(cams);
+      if (prefer) sel.value = prefer;
+      state.controls.selectedDeviceId = sel.value || null;
+    }
+
+    function buildHints() {
+      const hints = new Map();
+      hints.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.EAN_13, BarcodeFormat.EAN_8, BarcodeFormat.CODE_128]);
+      hints.set(DecodeHintType.TRY_HARDER, true);
+      state.hints = hints;
+      return hints;
+    }
+
+    async function startScanner() {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        $('#status').innerHTML = '<span class="danger">Camera API not supported on this device/browser.</span>'; return;
+      }
+      try {
+        $('#status').textContent = 'Starting…';
+        await populateCameras();
+
+        const codeReader = new BrowserMultiFormatReader(buildHints(), 300);
+        state.controls.codeReader = codeReader;
+        state.scanning = true;
+
+        const video = $('#preview');
+        const deviceId = state.controls.selectedDeviceId || $('#camera').value || null;
+
+        const onDecode = (result, err) => {
+          if (result) {
+            const text = result.getText().trim();
+            const now = Date.now();
+            if (text !== state.lastDecode.text || (now - state.lastDecode.t) > 1200) {
+              const typeName = formatToString(result.getBarcodeFormat?.());
+              addScan(text, typeName);
+              state.lastDecode = { text, t: now };
+              $('#status').textContent = `Read: ${text} (${typeName})`;
+            }
+          } else if (err && !isBenignZXingError(err)) {
+            $('#status').innerHTML = `<span class="danger">Scanner error: ${String(err.message || err)}</span>`;
+          } else {
+            $('#status').textContent = 'Scanning…';
+          }
+        };
+
+        try {
+          if (deviceId) {
+            await codeReader.decodeFromVideoDevice(deviceId, video, onDecode);
+            $('#status').textContent = 'Scanner running (device)';
+            return;
+          }
+          throw new Error('No deviceId available');
+        } catch {
+          try {
+            await codeReader.decodeFromConstraints({
+              video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+              audio: false
+            }, video, onDecode);
+            $('#status').textContent = 'Scanner running (constraints)';
+            return;
+          } catch {
+            await codeReader.decodeFromVideoDevice(null, video, onDecode);
+            $('#status').textContent = 'Scanner running (auto device)';
+            return;
+          }
+        }
+      } catch (e) {
+        $('#status').innerHTML = `<span class="danger">${e?.message || e}</span>`;
+        if (/NotAllowedError/i.test(String(e))) {
+          $('#status').innerHTML += '<br><span class="hint">Allow camera permission, then tap “Start scanner”.</span>';
+        }
+      }
+    }
+
+    async function stopScanner() {
+      try {
+        state.scanning = false;
+        state.controls.codeReader?.reset();
+        const vid = $('#preview');
+        const tracks = vid.srcObject?.getTracks?.() || [];
+        tracks.forEach(t => t.stop());
+        vid.srcObject = null;
+        $('#status').textContent = 'Scanner stopped';
+      } catch {}
+    }
+
+    async function toggleTorch() {
+      try {
+        const video = $('#preview');
+        const track = video.srcObject?.getVideoTracks?.()[0];
+        if (!track) { $('#status').textContent = 'No active camera'; return; }
+        const cap = track.getCapabilities?.();
+        if (!cap || !cap.torch) { $('#status').textContent = 'Torch not supported'; return; }
+        state.controls.torchOn = !state.controls.torchOn;
+        await track.applyConstraints({ advanced: [{ torch: state.controls.torchOn }] });
+        $('#status').textContent = state.controls.torchOn ? 'Torch ON' : 'Torch OFF';
+      } catch { $('#status').textContent = 'Unable to toggle torch'; }
+    }
+
+    // ==== Force scan (ROI) ====
+    function getRoiFromOverlay() {
+      const video = $('#preview');
+      const wrap = $('#wrap');
+      const guide = $('#overlay .guide');
+      const vw = video.videoWidth, vh = video.videoHeight;
+      if (!vw || !vh) return null; // no frame yet
+
+      const bw = wrap.clientWidth, bh = wrap.clientHeight;
+      const scale = Math.max(bw / vw, bh / vh);              // object-fit: cover
+      const xOffset = (bw - vw * scale) / 2;
+      const yOffset = (bh - vh * scale) / 2;
+
+      const gr = guide.getBoundingClientRect();
+      const wr = wrap.getBoundingClientRect();
+      const leftInWrap = gr.left - wr.left;
+      const topInWrap  = gr.top  - wr.top;
+
+      let sx = (leftInWrap - xOffset) / scale;
+      let sy = (topInWrap  - yOffset) / scale;
+      let sw = gr.width / scale;
+      let sh = gr.height / scale;
+
+      // clamp
+      sx = Math.max(0, Math.min(vw, sx));
+      sy = Math.max(0, Math.min(vh, sy));
+      sw = Math.max(1, Math.min(vw - sx, sw));
+      sh = Math.max(1, Math.min(vh - sy, sh));
+
+      return { sx, sy, sw, sh, vw, vh };
+    }
+
+    async function forceScanNow() {
+      try {
+        const roi = getRoiFromOverlay();
+        if (!roi) { $('#status').textContent = 'Hold steady…'; return; }
+
+        const video = $('#preview');
+        const { sx, sy, sw, sh } = roi;
+
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(sw);
+        canvas.height = Math.round(sh);
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        // Why: upscale small frames to help 1D decode
+        const scaleUp = Math.min(2, Math.max(1, 800 / Math.max(sw, sh)));
+        if (scaleUp !== 1) { canvas.width = Math.round(sw * scaleUp); canvas.height = Math.round(sh * scaleUp); }
+        ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+
+        const reader = new BrowserMultiFormatReader(state.hints || buildHints());
+        try {
+          const result = await reader.decodeFromCanvas(canvas);
+          const text = result.getText().trim();
+          const typeName = formatToString(result.getBarcodeFormat?.());
+          addScan(text, typeName);
+          $('#status').textContent = `Read: ${text} (${typeName})`;
+        } catch (err) {
+          if (!isBenignZXingError(err)) $('#status').innerHTML = `<span class="danger">No code in rectangle</span>`;
+          else $('#status').textContent = 'No code in rectangle';
+        } finally {
+          reader.reset();
+        }
+      } catch (e) {
+        $('#status').innerHTML = `<span class="danger">${e?.message || e}</span>`;
+      }
+    }
+
+    // ==== Submit ====
+    function buildPayload() {
+      const items = Object.values(state.cart).map(it => ({ barcode: it.barcode, qty: Number(it.qty), type: it.lastType || undefined }));
+      return { timestamp: new Date().toISOString(), user: $('#user').value || undefined, items };
+    }
+
+    function showPayload() {
+      const json = JSON.stringify(buildPayload(), null, 2);
+      $('#payload').value = json;
+      $('#submitPanel').classList.remove('hidden');
+    }
+
+    async function doCopy() {
+      try { await navigator.clipboard.writeText($('#payload').value); $('#note').innerHTML = '<span class="ok">Copied to clipboard</span>'; }
+      catch { $('#note').innerHTML = '<span class="danger">Clipboard not available</span>'; }
+    }
+
+    async function doShare() {
+      try {
+        const payload = $('#payload').value;
+        if (navigator.share) await navigator.share({ title: 'Inventory checkout', text: payload });
+        else $('#note').textContent = 'Native share not supported';
+      } catch {}
+    }
+
+    function downloadJSON() {
+      const blob = new Blob([$('#payload').value], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'inventory-checkout.json'; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function clearAll() {
+      if (!confirm('Clear the list?')) return;
+      state.cart = {}; changed();
+      $('#submitPanel').classList.add('hidden');
+    }
+
+    function addManual() {
+      const code = $('#manualCode').value.trim();
+      const qty = normalizeQty($('#manualQty').value || 1);
+      if (!code) return;
+      if (!state.cart[code]) state.cart[code] = { barcode: code, qty, lastType: 'MANUAL' };
+      else state.cart[code].qty = normalizeQty(Number(state.cart[code].qty) + qty);
+      $('#manualCode').value = '';
+      changed();
+    }
+
+    // ==== Wiring ====
+    $('#camera').addEventListener('change', (e) => {
+      state.controls.selectedDeviceId = e.target.value;
+      if (state.scanning) { stopScanner(); startScanner(); }
+    });
+    $('#start').onclick = startScanner;
+    $('#stop').onclick = stopScanner;
+    $('#torch').onclick = toggleTorch;
+    $('#force').onclick = forceScanNow;
+    $('#overlay').onclick = forceScanNow; // tap inside rectangle
+    $('#submit').onclick = showPayload;
+    $('#copy').onclick = doCopy;
+    $('#share').onclick = doShare;
+    $('#download').onclick = downloadJSON;
+    $('#clear').onclick = clearAll;
+    $('#addManual').onclick = addManual;
+
+    // init
+    (async () => {
+      renderList();
+      try { await populateCameras(); } catch {}
+      $('#note').innerHTML = '<span class="hint">Tip: tap the rectangle or “Scan now” to force a decode of that area.</span>';
+    })();
+  </script>
+</body>
+</html>

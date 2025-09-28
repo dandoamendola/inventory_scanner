@@ -12,7 +12,22 @@
     header h1 { font-size: 18px; margin:0; font-weight: 600; }
     main { padding: var(--pad); }
     .card { background:#15171d; border:1px solid #23262d; border-radius: var(--radius); padding: var(--pad); }
-    video { width: 100%; border-radius: 12px; background:#000; }
+
+    /* === Smaller camera preview + overlay === */
+    .previewWrap { position: relative; width: 100%; height: 220px; border-radius: 12px; overflow: hidden; background:#000; }
+    /* Why: keep stream filling the box regardless of camera aspect */
+    #preview { position:absolute; inset:0; width:100%; height:100%; object-fit: cover; }
+
+    .overlay { position:absolute; inset:0; pointer-events:none; display:flex; align-items:center; justify-content:center; }
+    .overlay .guide {
+      width: 82%;                /* horizontal focus window */
+      height: 36%;               /* tall enough for EAN/Code-128 */
+      border: 2px solid rgba(255,255,255,.95);
+      border-radius: 10px;
+      box-shadow: 0 0 0 2000px rgba(0,0,0,.45); /* dim outside */
+      outline: 1px solid rgba(0,0,0,.35);      /* subtle inner contrast */
+    }
+
     .row { display:flex; gap:10px; align-items:center; }
     .row > * { flex:1; }
     .btn { appearance:none; border:1px solid #2c3038; background:#1f232b; color:#fff; padding:10px 14px; border-radius:10px; cursor:pointer; }
@@ -48,10 +63,17 @@
         <div class="hint">(Optional) will be included in the payload.</div>
       </div>
       <div class="hr"></div>
+
       <div class="grid">
         <label class="muted">Camera</label>
         <select id="camera" class="qty" style="text-align:left; min-width:unset;"></select>
-        <video id="preview" playsinline muted autoplay></video>
+
+        <!-- Smaller preview + overlay -->
+        <div class="previewWrap">
+          <video id="preview" playsinline muted autoplay></video>
+          <div class="overlay"><div class="guide"></div></div>
+        </div>
+
         <div class="row">
           <button id="start" class="btn primary">Start scanner</button>
           <button id="stop" class="btn">Stop</button>
@@ -59,6 +81,7 @@
         </div>
         <div class="status" id="status"></div>
       </div>
+
       <div class="hr"></div>
       <div class="grid">
         <label class="muted">Manual entry</label>
@@ -95,7 +118,7 @@
     </section>
   </main>
 
-  <!-- Correct UMDs: library first, then browser -->
+  <!-- ZXing UMDs: library first, then browser -->
   <script src="https://unpkg.com/@zxing/library@0.21.2/umd/index.min.js"></script>
   <script src="https://unpkg.com/@zxing/browser@0.1.5/umd/zxing-browser.min.js"></script>
   <script>
@@ -177,7 +200,6 @@
       if (!err) return false;
       if (benignErrNames.has(err.name)) return true;
       const msg = String(err && (err.message || err));
-      // UMD/realm mismatch: rely on message fingerprint too.
       return /No MultiFormat Readers were able to detect the code|checksum|format/i.test(msg);
     }
 
@@ -218,7 +240,7 @@
         hints.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.EAN_13, BarcodeFormat.EAN_8, BarcodeFormat.CODE_128]);
         hints.set(DecodeHintType.TRY_HARDER, true);
 
-        const codeReader = new BrowserMultiFormatReader(hints, 300); // 300ms between scans
+        const codeReader = new BrowserMultiFormatReader(hints, 300);
         state.controls.codeReader = codeReader;
         state.scanning = true;
 
@@ -238,8 +260,7 @@
           } else if (err && !isBenignZXingError(err)) {
             $('#status').innerHTML = `<span class="danger">Scanner error: ${String(err.message || err)}</span>`;
           } else {
-            // keep a subtle “scanning…” heartbeat without spamming
-            if (document.visibilityState === 'visible') $('#status').textContent = 'Scanning…';
+            $('#status').textContent = 'Scanning…';
           }
         };
 
@@ -371,7 +392,7 @@
     (async () => {
       renderList();
       try { await populateCameras(); } catch {}
-      $('#note').innerHTML = '<span class="hint">Tip: fill the frame with the code, good light, steady hand (try torch).</span>';
+      $('#note').innerHTML = '<span class="hint">Tip: center the barcode in the rectangle; use torch if available.</span>';
     })();
   </script>
 </body>

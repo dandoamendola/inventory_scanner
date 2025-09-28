@@ -13,7 +13,7 @@
     main { padding: var(--pad); }
     .card { background:#15171d; border:1px solid #23262d; border-radius: var(--radius); padding: var(--pad); }
 
-    /* iPhone 13-friendly narrow preview + overlay */
+    /* Compact camera preview + overlay (iPhone 13 friendly) */
     .previewWrap { position: relative; width: 100%; height: 140px; border-radius: 12px; overflow: hidden; background:#000; }
     #preview { position:absolute; inset:0; width:100%; height:100%; object-fit: cover; }
     .overlay { position:absolute; inset:0; pointer-events:auto; display:flex; align-items:center; justify-content:center; }
@@ -24,6 +24,9 @@
       box-shadow: 0 0 0 2000px rgba(0,0,0,.45);
       outline: 1px solid rgba(0,0,0,.35);
     }
+    /* Shutter flash feedback */
+    .shutter { position:absolute; inset:0; background:#fff; opacity:0; pointer-events:none; transition:opacity 140ms ease; }
+    .shutter.active { opacity:0.85; }
 
     .row { display:flex; gap:10px; align-items:center; }
     .row > * { flex:1; }
@@ -31,7 +34,6 @@
     .btn:active { transform: translateY(1px); }
     .btn.primary { background:#4b7bec; border-color:#4b7bec; }
     .btn.ghost { background:transparent; }
-    .muted { opacity: .75; }
     .list { margin-top: 10px; }
     .item { display:grid; grid-template-columns: 1fr auto auto auto; gap:10px; align-items:center; padding:10px; border-bottom:1px solid #23262d; }
     .qtyBox { display:flex; gap:6px; align-items:center; }
@@ -41,9 +43,6 @@
     .danger { color: #ff6b6b; }
     .ok { color: #1dd1a1; }
     .grid { display:grid; gap:10px; }
-    .kpi { display:flex; justify-content:space-between; font-size:13px; opacity:.85; }
-    .hint { font-size: 12px; opacity:.8; }
-    .hidden { display:none; }
     .hr { height:1px; background:#23262d; margin:10px 0; }
   </style>
 </head>
@@ -57,7 +56,6 @@
       <div class="grid">
         <label class="muted">Device / User</label>
         <input id="user" class="qty" style="text-align:left; min-width:unset;" placeholder="e.g. Marco" />
-        <div class="hint">Manual rule: length=8 → CODE_128, else → EAN.</div>
       </div>
 
       <div class="hr"></div>
@@ -68,9 +66,8 @@
 
         <div class="previewWrap" id="wrap">
           <video id="preview" playsinline muted autoplay></video>
-          <div class="overlay" id="overlay" title="Tap to force scan">
-            <div class="guide"></div>
-          </div>
+          <div class="overlay" id="overlay" title="Tap to force scan"><div class="guide"></div></div>
+          <div id="shutter" class="shutter"></div>
         </div>
 
         <div class="row">
@@ -79,7 +76,7 @@
           <button id="torch" class="btn ghost">Torch</button>
           <button id="force" class="btn">Scan now</button>
         </div>
-        <div class="status" id="status"></div>
+        <div class="status" id="status">Ready</div>
       </div>
 
       <div class="hr"></div>
@@ -95,41 +92,47 @@
     </section>
 
     <section class="card">
-      <div class="kpi">
-        <div>Items: <b id="kCount">0</b></div>
-        <div>Total qty: <b id="kQty">0</b></div>
-      </div>
       <div class="list" id="list"></div>
       <div class="row" style="margin-top:10px;">
         <button id="clear" class="btn">Clear</button>
-        <button id="export" class="btn">Export CSV</button>
-        <button id="sendSheet" class="btn primary">Send to Google Sheet</button>
-      </div>
-      <div class="status" id="note"></div>
-    </section>
-
-    <section id="exportPanel" class="card hidden">
-      <h3>CSV ready</h3>
-      <div class="hint">A=Code128, E=EAN, I=Qty (0.5). Open in Excel.</div>
-      <textarea id="csv" style="width:100%; height:160px; margin-top:8px; border-radius:10px; background:#101218; color:#eee; border:1px solid #2c3038; padding:10px;"></textarea>
-      <div class="row" style="margin-top:8px;">
-        <button id="copy" class="btn">Copy CSV</button>
-        <button id="share" class="btn">Share</button>
-        <button id="download" class="btn">Download .csv</button>
+        <button id="submit" class="btn primary">Submit</button>
       </div>
     </section>
   </main>
 
-  <!-- ZXing UMDs: library first, then browser -->
+  <!-- ZXing UMDs -->
   <script src="https://unpkg.com/@zxing/library@0.21.2/umd/index.min.js"></script>
   <script src="https://unpkg.com/@zxing/browser@0.1.5/umd/zxing-browser.min.js"></script>
   <script>
-    // === CONFIG: paste your Apps Script Web App URL (/exec), not the Sheet URL ===
+    // === CONFIG: production /exec URL ===
     const GOOGLE_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxRiifyYgLi9EBm0CWVdngewCj8TenSlEs157mUNw19_bP30jGFYdmRa3laruE8FmzM/exec';
 
     // === State & Utils ===
     const STORAGE_KEY = 'inv_cart_v1';
     const $ = (sel) => document.querySelector(sel);
+
+    // WebAudio beep (initialized on first user gesture)
+    let audioCtx = null;
+    function ensureAudio() {
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+      } catch {}
+    }
+    function beep(freq = 1800, ms = 120, vol = 0.06) {
+      try {
+        ensureAudio();
+        const ctx = audioCtx; if (!ctx) return;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'square';
+        osc.frequency.value = freq;
+        gain.gain.value = vol; // low volume for phones
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + ms / 1000);
+      } catch {}
+    }
 
     function normalizeQty(v) {
       let n = Number(v);
@@ -143,8 +146,6 @@
 
     function loadCart() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch { return {}; } }
     function saveCart() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state.cart)); }
-    function totalItems() { return Object.keys(state.cart).length; }
-    function totalQty() { return Object.values(state.cart).reduce((s, it) => s + Number(it.qty || 0), 0); }
 
     const state = {
       cart: loadCart(), // { [barcode]: { barcode, qty, lastType } }
@@ -152,11 +153,13 @@
       controls: { codeReader: null, selectedDeviceId: null, torchOn: false },
       lastDecode: { text: '', t: 0 },
       hints: null,
+      forceLock: false,
     };
 
     function renderList() {
       const list = $('#list'); list.innerHTML = '';
-      for (const it of Object.values(state.cart)) {
+      const items = Object.values(state.cart);
+      for (const it of items) {
         const row = document.createElement('div');
         row.className = 'item';
         row.innerHTML = `
@@ -178,8 +181,6 @@
         row.querySelector('[data-act="del"]').onclick = () => { delete state.cart[it.barcode]; changed(); };
         list.appendChild(row);
       }
-      $('#kCount').textContent = String(totalItems());
-      $('#kQty').textContent = String(totalQty());
     }
     function changed() { saveCart(); renderList(); }
 
@@ -188,6 +189,7 @@
       const key = barcode;
       if (!state.cart[key]) state.cart[key] = { barcode, qty: 1, lastType: type || '' };
       else state.cart[key].qty = normalizeQty(Number(state.cart[key].qty) + 1);
+      beep();               // audible feedback
       navigator.vibrate?.(20);
       changed();
     }
@@ -200,12 +202,7 @@
       for (const [k, v] of Object.entries(BarcodeFormat)) if (v === fmt) return k;
       return String(fmt);
     }
-    const benignErrNames = new Set(['NotFoundException', 'ChecksumException', 'FormatException']);
-    const isBenignZXingError = (err) => {
-      if (!err) return false;
-      if (benignErrNames.has(err.name)) return true;
-      return /No MultiFormat Readers were able|checksum|format/i.test(String(err?.message || err));
-    };
+    const benignErr = (err) => !!(err && (/No MultiFormat Readers were able|checksum|format/i.test(String(err.message || err))));
 
     async function listCameras() {
       const tmp = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
@@ -237,6 +234,7 @@
     }
 
     async function startScanner() {
+      ensureAudio(); // enable beep on iOS
       if (!navigator.mediaDevices?.getUserMedia) { $('#status').innerHTML = '<span class="danger">Camera API not supported.</span>'; return; }
       try {
         $('#status').textContent = 'Starting…';
@@ -249,6 +247,7 @@
         const deviceId = state.controls.selectedDeviceId || $('#camera').value || null;
 
         const onDecode = (result, err) => {
+          if (state.forceLock) return;
           if (result) {
             const text = result.getText().trim();
             const now = Date.now();
@@ -258,7 +257,7 @@
               state.lastDecode = { text, t: now };
               $('#status').textContent = `Read: ${text} (${typeName})`;
             }
-          } else if (err && !isBenignZXingError(err)) {
+          } else if (err && !benignErr(err)) {
             $('#status').innerHTML = `<span class="danger">Scanner error: ${String(err.message || err)}</span>`;
           } else {
             $('#status').textContent = 'Scanning…';
@@ -268,7 +267,7 @@
         try {
           if (deviceId) {
             await codeReader.decodeFromVideoDevice(deviceId, video, onDecode);
-            $('#status').textContent = 'Scanner running (device)';
+            $('#status').textContent = 'Scanner running';
             return;
           }
           throw new Error('No deviceId');
@@ -278,17 +277,16 @@
               video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
               audio: false
             }, video, onDecode);
-            $('#status').textContent = 'Scanner running (constraints)';
+            $('#status').textContent = 'Scanner running';
             return;
           } catch {
             await codeReader.decodeFromVideoDevice(null, video, onDecode);
-            $('#status').textContent = 'Scanner running (auto device)';
+            $('#status').textContent = 'Scanner running';
             return;
           }
         }
       } catch (e) {
         $('#status').innerHTML = `<span class="danger">${e?.message || e}</span>`;
-        if (/NotAllowedError/i.test(String(e))) $('#status').innerHTML += '<br><span class="hint">Allow camera permission.</span>';
       }
     }
 
@@ -306,8 +304,7 @@
 
     async function toggleTorch() {
       try {
-        const video = $('#preview');
-        const track = video.srcObject?.getVideoTracks?.()[0];
+        const track = $('#preview').srcObject?.getVideoTracks?.()[0];
         if (!track) { $('#status').textContent = 'No active camera'; return; }
         const cap = track.getCapabilities?.();
         if (!cap || !cap.torch) { $('#status').textContent = 'Torch not supported'; return; }
@@ -317,7 +314,13 @@
       } catch { $('#status').textContent = 'Unable to toggle torch'; }
     }
 
-    // === Force scan (ROI) ===
+    // === Force scan (ROI + fallbacks) ===
+    function shutterFlash() {
+      const s = $('#shutter');
+      s.classList.add('active');
+      setTimeout(() => s.classList.remove('active'), 140);
+    }
+
     function getRoiFromOverlay() {
       const video = $('#preview'), wrap = $('#wrap'), guide = $('#overlay .guide');
       const vw = video.videoWidth, vh = video.videoHeight;
@@ -334,41 +337,89 @@
       return { sx, sy, sw, sh };
     }
 
-    function forceScanNow() {
-      const roi = getRoiFromOverlay();
-      if (!roi) { $('#status').textContent = 'Camera not ready…'; return; }
+    function drawFromVideoToCanvas(video, sx, sy, sw, sh, scale) {
+      const c = document.createElement('canvas');
+      c.width = Math.round(sw * scale);
+      c.height = Math.round(sh * scale);
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(video, sx, sy, sw, sh, 0, 0, c.width, c.height);
+      return c;
+    }
+
+    function rotateCanvas90(canvas) {
+      const r = document.createElement('canvas');
+      r.width = canvas.height; r.height = canvas.width;
+      const ctx = r.getContext('2d', { willReadFrequently: true });
+      ctx.translate(r.width/2, r.height/2);
+      ctx.rotate(Math.PI/2);
+      ctx.drawImage(canvas, -canvas.width/2, -canvas.height/2);
+      return r;
+    }
+
+    function tryDecodeCanvas(reader, canvas) {
+      try { return reader.decodeFromCanvas(canvas); } catch { return null; }
+    }
+
+    async function forceScanNow() {
+      ensureAudio(); // allow beep
+      if (!state.scanning) { $('#status').textContent = 'Start the scanner first'; return; }
       const video = $('#preview');
-      const { sx, sy, sw, sh } = roi;
+      if (!video.videoWidth) { $('#status').textContent = 'Camera not ready…'; return; }
 
-      const canvas = document.createElement('canvas');
-      const scaleUp = Math.min(3, Math.max(1, 900 / Math.max(sw, sh))); // helps 1D decode
-      canvas.width = Math.round(sw * scaleUp);
-      canvas.height = Math.round(sh * scaleUp);
-      const ctx = canvas.getContext('2d', { willReadFrequently: true });
-      ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+      state.forceLock = true;
+      shutterFlash();
+      try { video.pause?.(); } catch {}
 
-      try {
-        const reader = new BrowserMultiFormatReader(state.hints || buildHints());
-        const result = reader.decodeFromCanvas(canvas); // sync; throws if no code
-        reader.reset();
+      const reader = new BrowserMultiFormatReader(state.hints || buildHints());
+      const roi = getRoiFromOverlay();
+      let result = null;
+
+      if (roi) {
+        for (const s of [3, 2]) {
+          const c = drawFromVideoToCanvas(video, roi.sx, roi.sy, roi.sw, roi.sh, s);
+          result = tryDecodeCanvas(reader, c);
+          if (result) break;
+        }
+      }
+      if (!result) {
+        const vw = video.videoWidth, vh = video.videoHeight;
+        const stripH = Math.max(80, Math.round(vh * 0.28));
+        const sy = Math.round(vh / 2 - stripH / 2);
+        const c = drawFromVideoToCanvas(video, 0, sy, vw, stripH, 2);
+        result = tryDecodeCanvas(reader, c);
+      }
+      if (!result && roi) {
+        const c = drawFromVideoToCanvas(video, roi.sx, roi.sy, roi.sw, roi.sh, 3);
+        result = tryDecodeCanvas(reader, rotateCanvas90(c));
+      }
+      if (!result) {
+        const vw = video.videoWidth, vh = video.videoHeight;
+        const c = drawFromVideoToCanvas(video, 0, 0, vw, vh, Math.min(1.5, 1200 / Math.max(vw, vh)));
+        result = tryDecodeCanvas(reader, c);
+      }
+
+      reader.reset();
+      try { await video.play?.(); } catch {}
+      state.forceLock = false;
+
+      if (result) {
         const text = result.getText().trim();
         const typeName = fmtName(result.getBarcodeFormat?.());
         addScan(text, typeName);
         $('#status').textContent = `Read: ${text} (${typeName})`;
-      } catch {
+      } else {
         $('#status').textContent = 'No code in rectangle';
       }
     }
 
-    // === CSV/Sheet rows (A/E/I) ===
+    // === Build rows for Submit: A/E/I ===
     function buildRow9(it) {
-      const qty = normalizeQty(it.qty);
-      const q = (qty % 1) ? qty.toFixed(1) : String(qty);
+      const qtyNum = normalizeQty(it.qty);
       const t = String(it.lastType || '').toUpperCase();
       const row = ['', '', '', '', '', '', '', '', '']; // A..I
-      if (t === 'CODE_128') row[0] = String(it.barcode);                // A
+      if (t === 'CODE_128') row[0] = String(it.barcode);                         // A
       if (t === 'EAN_13' || t === 'EAN_8' || t === 'EAN') row[4] = String(it.barcode); // E
-      row[8] = q;                                                       // I
+      row[8] = qtyNum;                                                           // I (Number)
       return row;
     }
     function buildSheetRows() {
@@ -377,100 +428,58 @@
         .map(buildRow9);
     }
 
-    // === CSV Export ===
-    function buildCSV() {
-      const rows = buildSheetRows()
-        .map(r => r.map((v,i)=> (i===0||i===4) ? `"${String(v).replace(/"/g,'""')}"` : String(v)).join(','));
-      return rows.join('\r\n');
-    }
-    function showCSV() {
-      const rows = buildCSV();
-      $('#csv').value = rows;
-      $('#exportPanel').classList.remove('hidden');
-      if (!rows) $('#note').innerHTML = '<span class="hint">Nothing to export yet.</span>';
-    }
-    async function doCopyCSV() {
-      try { await navigator.clipboard.writeText($('#csv').value); $('#note').innerHTML = '<span class="ok">CSV copied</span>'; }
-      catch { $('#note').innerHTML = '<span class="danger">Clipboard not available</span>'; }
-    }
-    async function doShareCSV() {
-      try {
-        const bom = '\uFEFF', data = bom + $('#csv').value;
-        const file = new File([data], 'inventory.csv', { type: 'text/csv;charset=utf-8' });
-        if (navigator.canShare?.({ files: [file] })) await navigator.share({ files: [file], title: 'Inventory CSV' });
-        else if (navigator.share) await navigator.share({ title: 'Inventory CSV', text: data });
-        else $('#note').textContent = 'Native share not supported';
-      } catch {}
-    }
-    function downloadCSV() {
-      const bom = '\uFEFF';
-      const blob = new Blob([bom + $('#csv').value], { type: 'text/csv;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href = url; a.download = 'inventory.csv'; a.click(); URL.revokeObjectURL(url);
-    }
-
-    // === Send to Google Sheet (validate + auto-clear on success) ===
+    // === Submit (validate + auto-clear) ===
     function validateRows(rows) {
       let valid = [], invalid = 0;
       for (const r of rows) {
         const hasCode = (r[0] && String(r[0]).trim()) || (r[4] && String(r[4]).trim());
-        const hasQty = String(r[8] ?? '').trim() !== '';
+        const hasQty = r[8] !== '' && r[8] != null && !Number.isNaN(Number(r[8]));
         if (hasCode && hasQty) valid.push(r); else invalid++;
       }
       return { valid, invalid };
     }
 
-    async function sendToGoogleSheet() {
-      if (!GOOGLE_WEB_APP_URL || GOOGLE_WEB_APP_URL.startsWith('PASTE_')) {
-        $('#note').innerHTML = '<span class="danger">Set GOOGLE_WEB_APP_URL (Apps Script Web App URL).</span>'; return;
-      }
+    async function submitToSheet() {
       const rowsAll = buildSheetRows();
       const { valid, invalid } = validateRows(rowsAll);
-      if (!valid.length) { $('#note').innerHTML = '<span class="danger">No valid rows: every row needs code (A or E) and qty (I).</span>'; return; }
+      if (!valid.length) { $('#status').innerHTML = '<span class="danger">No valid rows (need code + qty).</span>'; return; }
 
-      const stats = valid.reduce((a, r) => { if (r[0]) a.code128++; if (r[4]) a.ean++; a.qty += parseFloat(r[8]||0); return a; }, {code128:0, ean:0, qty:0});
-      $('#note').innerHTML = `Sending ${valid.length} rows (Code128: ${stats.code128}, EAN: ${stats.ean}).`;
-
-      const btn = $('#sendSheet'); btn.disabled = true; btn.textContent = 'Sending…';
+      const btn = $('#submit'); btn.disabled = true; btn.textContent = 'Submitting…';
       try {
         const resp = await fetch(GOOGLE_WEB_APP_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ rows: valid })
         });
-
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        let data = {};
-        try { data = await resp.json(); } catch {}
+        let data = {}; try { data = await resp.json(); } catch {}
         if (data.ok) {
-          // auto-clear on success
-          state.cart = {}; changed();
-          $('#note').innerHTML = `<span class="ok">Sent: ${data.appended} rows appended${invalid ? `, ${invalid} skipped` : ''}. Cart cleared.</span>`;
+          state.cart = {}; changed(); // auto-clear
+          $('#status').innerHTML = `<span class="ok">Submitted ${data.appended} rows${invalid ? `, ${invalid} skipped` : ''}.</span>`;
         } else {
-          throw new Error(data.error || 'Unknown error from script');
+          throw new Error(data.error || 'Script error');
         }
       } catch {
-        // Fallback: still clear (you asked to auto-clear after send).
         try {
           await fetch(GOOGLE_WEB_APP_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ rows: valid }) });
-          state.cart = {}; changed();
-          $('#note').innerHTML = `<span class="ok">Sent (no-cors). Cart cleared.${invalid ? ` ${invalid} skipped locally.` : ''}</span>`;
+          state.cart = {}; changed(); // best-effort clear
+          $('#status').innerHTML = `<span class="ok">Submitted (no-cors). Cart cleared.${invalid ? ` ${invalid} skipped locally.` : ''}</span>`;
         } catch {
-          $('#note').innerHTML = '<span class="danger">Send failed</span>';
+          $('#status').innerHTML = '<span class="danger">Submit failed</span>';
         }
       } finally {
-        btn.disabled = false; btn.textContent = 'Send to Google Sheet';
+        btn.disabled = false; btn.textContent = 'Submit';
       }
     }
 
-    // === Clear / Manual ===
+    // === Clear / Manual entry ===
     function clearAll() {
       if (!confirm('Clear the list?')) return;
       state.cart = {}; changed();
-      $('#exportPanel').classList.add('hidden');
     }
-    // Manual: 8 chars → CODE_128; else → EAN
+    // Manual: 8 chars → CODE_128; else → EAN (per your rule)
     function addManual() {
+      ensureAudio();
       const code = $('#manualCode').value.trim();
       const qty = normalizeQty($('#manualQty').value || 1);
       if (!code) return;
@@ -478,6 +487,7 @@
       if (!state.cart[code]) state.cart[code] = { barcode: code, qty, lastType: type };
       else state.cart[code].qty = normalizeQty(Number(state.cart[code].qty) + qty);
       $('#manualCode').value = '';
+      beep(); // feedback for manual add
       changed();
     }
 
@@ -486,22 +496,14 @@
     $('#start').onclick = startScanner;
     $('#stop').onclick = stopScanner;
     $('#torch').onclick = toggleTorch;
-    $('#force').onclick = forceScanNow;
-    $('#overlay').onclick = forceScanNow;
-    $('#export').onclick = showCSV;
-    $('#copy').onclick = doCopyCSV;
-    $('#share').onclick = doShareCSV;
-    $('#download').onclick = downloadCSV;
-    $('#sendSheet').onclick = sendToGoogleSheet;
+    $('#force').onclick = () => { ensureAudio(); forceScanNow(); };
+    $('#overlay').onclick = () => { ensureAudio(); forceScanNow(); };
+    $('#submit').onclick = submitToSheet;
     $('#clear').onclick = clearAll;
     $('#addManual').onclick = addManual;
 
     // init
-    (async () => {
-      renderList();
-      try { await populateCameras(); } catch {}
-      $('#note').innerHTML = '<span class="hint">A=CODE128, E=EAN, I=Qty (0.5). Send clears the cart.</span>';
-    })();
+    (async () => { renderList(); try { await populateCameras(); } catch {} })();
   </script>
 </body>
 </html>
@@ -509,7 +511,7 @@
 <!-- /apps-script/Code.gs -->
 /**
  * Appends validated 9-column rows to FIRST sheet (gid=0).
- * Valid row must have (A OR E) AND I. Returns {ok, appended, skipped}.
+ * Valid row must have (A OR E) AND I. Qty (I) is written as a NUMBER.
  */
 function doPost(e) {
   try {
@@ -518,44 +520,42 @@ function doPost(e) {
     var rows = Array.isArray(data.rows) ? data.rows : [];
     if (!rows.length) return _json({ ok: false, error: 'No rows' });
 
-    var sanitized = [];
+    var out = [];
     var skipped = 0;
 
     for (var i = 0; i < rows.length; i++) {
       var r = Array.isArray(rows[i]) ? rows[i].slice(0, 9) : [];
       while (r.length < 9) r.push('');
-      var code128 = r[0] != null ? String(r[0]).trim() : '';
-      var ean     = r[4] != null ? String(r[4]).trim() : '';
-      var qty     = r[8] != null ? String(r[8]).trim() : '';
-      var hasCode = !!(code128 || ean);
-      var hasQty  = qty !== '';
+      var a = r[0] != null ? String(r[0]).trim() : '';      // A: Code128
+      var ecode = r[4] != null ? String(r[4]).trim() : '';  // E: EAN
+      var qraw = r[8];                                      // I: Qty
+
+      var hasCode = !!(a || ecode);
+      var q = (typeof qraw === 'number') ? qraw : parseFloat(String(qraw).replace(',', '.'));
+      var hasQty = (qraw !== '' && qraw != null && !isNaN(q));
 
       if (hasCode && hasQty) {
-        r[0] = code128; r[4] = ean; r[8] = qty; // keep as strings
-        sanitized.push(r);
+        var row = ['', '', '', '', '', '', '', '', ''];
+        row[0] = a;
+        row[4] = ecode;
+        row[8] = q; // numeric
+        out.push(row);
       } else {
         skipped++;
       }
     }
 
-    if (!sanitized.length) return _json({ ok: false, error: 'No valid rows (need code and qty)', skipped: skipped });
+    if (!out.length) return _json({ ok: false, error: 'No valid rows (need code + qty)', skipped: skipped });
 
-    var ss = SpreadsheetApp.getActiveSpreadsheet();  // container-bound
-    var sheet = ss.getSheets()[0];                   // gid=0
+    var ss = SpreadsheetApp.getActiveSpreadsheet(); // container-bound to your Sheet
+    var sheet = ss.getSheets()[0];                  // first tab (gid=0)
     var startRow = sheet.getLastRow() + 1;
-    sheet.getRange(startRow, 1, sanitized.length, 9).setValues(sanitized);
+    sheet.getRange(startRow, 1, out.length, 9).setValues(out);
 
-    return _json({ ok: true, appended: sanitized.length, skipped: skipped });
+    return _json({ ok: true, appended: out.length, skipped: skipped });
   } catch (err) {
     return _json({ ok: false, error: String(err && err.message || err) });
   }
 }
-
-function doGet() {
-  return _json({ ok: true, info: 'POST { rows: [[A..I], ...] } – requires (A or E) and I.' });
-}
-
-function _json(obj) {
-  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
-}
-
+function doGet() { return _json({ ok: true, info: 'POST { rows:[[A..I], ...] } – requires (A or E) and numeric I.' }); }
+function _json(obj) { return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON); }

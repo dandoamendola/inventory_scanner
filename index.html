@@ -125,7 +125,7 @@
   <script src="https://unpkg.com/@zxing/browser@0.1.5/umd/zxing-browser.min.js"></script>
   <script>
     // === CONFIG: paste your Apps Script Web App URL (/exec), not the Sheet URL ===
-    const GOOGLE_WEB_APP_URL = 'PASTE_WEB_APP_URL_HERE';
+    const GOOGLE_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxRiifyYgLi9EBm0CWVdngewCj8TenSlEs157mUNw19_bP30jGFYdmRa3laruE8FmzM/exec';
 
     // === State & Utils ===
     const STORAGE_KEY = 'inv_cart_v1';
@@ -558,3 +558,4 @@ function doGet() {
 function _json(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
+

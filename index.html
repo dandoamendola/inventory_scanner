@@ -112,8 +112,9 @@ This is a **stand‑alone web app** (a single `index.html`) designed for **phone
     </section>
   </main>
 
-  <!-- ZXing -->
-  <script src="https://unpkg.com/@zxing/browser@latest"></script>
+  <!-- ZXing UMD builds from CDN (load library first, then browser wrapper) -->
+  <script src="https://unpkg.com/@zxing/library@0.21.2/umd/index.min.js"></script>
+  <script src="https://unpkg.com/@zxing/browser@0.1.5/umd/index.min.js"></script>
   <script>
     // ==== State & Utils ====
     const STORAGE_KEY = 'inv_cart_v1';
@@ -174,9 +175,14 @@ This is a **stand‑alone web app** (a single `index.html`) designed for **phone
     }
 
     // ==== Scanner ====
-    const { BrowserMultiFormatReader, NotFoundException, ChecksumException, FormatException, BarcodeFormat, DecodeHintType } = ZXingBrowser;
+    // Pull classes from the UMD globals exposed by the two scripts above
+    const { BrowserMultiFormatReader, NotFoundException, ChecksumException, FormatException } = ZXingBrowser;
+    const { BarcodeFormat, DecodeHintType } = ZXing; // from @zxing/library
 
     async function listCameras() {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      // Immediately stop to free camera; this grants labels in enumerateDevices on iOS/Safari
+      stream.getTracks().forEach(t => t.stop());
       const devices = await navigator.mediaDevices.enumerateDevices();
       return devices.filter(d => d.kind === 'videoinput');
     }
@@ -189,8 +195,7 @@ This is a **stand‑alone web app** (a single `index.html`) designed for **phone
         opt.value = c.deviceId; opt.textContent = c.label || `Camera ${i+1}`;
         sel.appendChild(opt);
       });
-      // prefer the last one (often rear camera)
-      if (cams.length) sel.value = cams[cams.length - 1].deviceId;
+      if (cams.length) sel.value = cams[cams.length - 1].deviceId; // often rear
       state.controls.selectedDeviceId = sel.value;
     }
 
@@ -198,6 +203,7 @@ This is a **stand‑alone web app** (a single `index.html`) designed for **phone
       try {
         $('#status').textContent = 'Starting…';
         await populateCameras();
+        // Hints to speed up detection for our formats
         const hints = new Map();
         hints.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.EAN_13, BarcodeFormat.EAN_8, BarcodeFormat.CODE_128]);
         const codeReader = new BrowserMultiFormatReader(hints);
@@ -213,7 +219,7 @@ This is a **stand‑alone web app** (a single `index.html`) designed for **phone
           } else if (err && !(err instanceof NotFoundException) && !(err instanceof ChecksumException) && !(err instanceof FormatException)) {
             $('#status').textContent = `Error: ${String(err)}`;
           }
-          state.controls.stream = controls; // for stop management
+          state.controls.stream = controls;
         });
       } catch (e) {
         $('#status').innerHTML = `<span class="danger">${e.message || e}</span>`;

@@ -1,4 +1,4 @@
-```html
+<!-- /index.html -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -24,7 +24,7 @@
     .item { display:grid; grid-template-columns: 1fr auto auto auto; gap:10px; align-items:center; padding:10px; border-bottom:1px solid #23262d; }
     .qtyBox { display:flex; gap:6px; align-items:center; }
     .qty { min-width: 44px; text-align:center; padding:8px; border-radius:10px; border:1px solid #2c3038; background:#101218; color:#fff; }
-    .pill { font-size:12px; padding:4px 8px; border:1px solid #2c3038; border-radius:999px; }
+    .pill { font-size:12px; padding:4px 8px; border:1px solid #2c3038; border-radius:999px; text-align:center; }
     .status { margin-top:8px; font-size:13px; }
     .danger { color: #ff6b6b; }
     .ok { color: #1dd1a1; }
@@ -51,7 +51,7 @@
       <div class="grid">
         <label class="muted">Camera</label>
         <select id="camera" class="qty" style="text-align:left; min-width:unset;"></select>
-        <video id="preview" playsinline muted></video>
+        <video id="preview" playsinline muted autoplay></video>
         <div class="row">
           <button id="start" class="btn primary">Start scanner</button>
           <button id="stop" class="btn">Stop</button>
@@ -99,26 +99,29 @@
   <script src="https://unpkg.com/@zxing/library@0.21.2/umd/index.min.js"></script>
   <script src="https://unpkg.com/@zxing/browser@0.1.5/umd/index.min.js"></script>
   <script>
+    /* Why: single-file, phone-first, persistent local cart, camera scanner via ZXing */
+
     // ==== State & Utils ====
     const STORAGE_KEY = 'inv_cart_v1';
+
     function normalizeQty(v) {
       let n = Number(v);
       if (!Number.isFinite(n)) n = 1;
       n = Math.max(0.5, n);
       n = Math.round(n * 2) / 2; // snap to 0.5 steps
       const frac = Math.abs(n - Math.trunc(n));
-      if (frac !== 0 && Math.abs(frac - 0.5) > 1e-9) {
-        n = Math.trunc(n) + 0.5; // enforce .0 or .5
-      }
+      if (frac !== 0 && Math.abs(frac - 0.5) > 1e-9) n = Math.trunc(n) + 0.5; // enforce .0 or .5
       return n;
     }
+
     const $ = (sel) => document.querySelector(sel);
     const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
     const state = {
       cart: loadCart(), // { [barcode]: { barcode, qty, lastType } }
       scanning: false,
-      controls: { stream: null, codeReader: null, selectedDeviceId: null, torchOn: false },
+      controls: { codeReader: null, selectedDeviceId: null, torchOn: false },
+      lastDecode: { text: '', t: 0 },
     };
 
     function loadCart() {
@@ -130,7 +133,8 @@
     function totalQty() { return Object.values(state.cart).reduce((s, it) => s + Number(it.qty || 0), 0); }
 
     function renderList() {
-      $('#list').innerHTML = '';
+      const list = $('#list');
+      list.innerHTML = '';
       const entries = Object.values(state.cart);
       for (const it of entries) {
         const row = document.createElement('div');
@@ -152,10 +156,10 @@
         row.querySelector('[data-act="dec"]').onclick = () => { it.qty = normalizeQty(Math.max(0.5, Number(it.qty) - 1)); changed(); };
         row.querySelector('[data-role="qty"]').onchange = (e) => { it.qty = normalizeQty(e.target.value); e.target.value = it.qty; changed(); };
         row.querySelector('[data-act="del"]').onclick = () => { delete state.cart[it.barcode]; changed(); };
-        $('#list').appendChild(row);
+        list.appendChild(row);
       }
-      $('#kCount').textContent = totalItems();
-      $('#kQty').textContent = totalQty();
+      $('#kCount').textContent = String(totalItems());
+      $('#kQty').textContent = String(totalQty());
     }
 
     function changed() { saveCart(); renderList(); }
@@ -168,15 +172,20 @@
       changed();
     }
 
-    // ==== Scanner ====
-    // Pull classes from the UMD globals exposed by the two scripts above
-    const { BrowserMultiFormatReader, NotFoundException, ChecksumException, FormatException } = ZXingBrowser;
-    const { BarcodeFormat, DecodeHintType } = ZXing; // from @zxing/library
+    // ==== Scanner (ZXing) ====
+    // Why: Exceptions come from @zxing/library, reader comes from @zxing/browser.
+    const { BrowserMultiFormatReader } = ZXingBrowser;
+    const { BarcodeFormat, DecodeHintType, NotFoundException, ChecksumException, FormatException } = ZXing;
+
+    function formatToString(fmt) {
+      for (const [k, v] of Object.entries(BarcodeFormat)) if (v === fmt) return k;
+      return String(fmt);
+    }
 
     async function listCameras() {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-      // Immediately stop to free camera; this grants labels in enumerateDevices on iOS/Safari
-      stream.getTracks().forEach(t => t.stop());
+      // Why: opening a temp stream yields device labels on iOS/Safari
+      const temp = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      temp.getTracks().forEach(t => t.stop());
       const devices = await navigator.mediaDevices.enumerateDevices();
       return devices.filter(d => d.kind === 'videoinput');
     }
@@ -184,13 +193,13 @@
     async function populateCameras() {
       const cams = await listCameras();
       const sel = $('#camera'); sel.innerHTML = '';
-      cams.forEach((c,i) => {
+      cams.forEach((c, i) => {
         const opt = document.createElement('option');
-        opt.value = c.deviceId; opt.textContent = c.label || `Camera ${i+1}`;
+        opt.value = c.deviceId; opt.textContent = c.label || `Camera ${i + 1}`;
         sel.appendChild(opt);
       });
       if (cams.length) sel.value = cams[cams.length - 1].deviceId; // often rear
-      state.controls.selectedDeviceId = sel.value;
+      state.controls.selectedDeviceId = sel.value || null;
     }
 
     async function startScanner() {
@@ -198,7 +207,6 @@
         $('#status').textContent = 'Starting…';
         await populateCameras();
 
-        // Build reader and hints (prefer our 3 formats)
         const hints = new Map();
         hints.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.EAN_13, BarcodeFormat.EAN_8, BarcodeFormat.CODE_128]);
         const codeReader = new BrowserMultiFormatReader(hints);
@@ -208,10 +216,22 @@
         const video = $('#preview');
         const deviceId = state.controls.selectedDeviceId || $('#camera').value || undefined;
 
-        // Fallback ladder:
-        // 1) Specific deviceId (if any)
-        // 2) Constraints with facingMode: environment (lets browser pick rear)
-        // 3) Null device (ZXing picks default)
+        const onDecode = (result, err, controls) => {
+          if (result) {
+            const text = result.getText().trim();
+            const now = Date.now();
+            if (text !== state.lastDecode.text || (now - state.lastDecode.t) > 1200) {
+              const typeName = formatToString(result.getBarcodeFormat?.());
+              addScan(text, typeName);
+              state.lastDecode = { text, t: now };
+              $('#status').textContent = `Read: ${text} (${typeName})`;
+            }
+          } else if (err && !(err instanceof NotFoundException) && !(err instanceof ChecksumException) && !(err instanceof FormatException)) {
+            $('#status').innerHTML = `<span class="danger">Error: ${String(err)}</span>`;
+          }
+          // controls unused; stream is attached to <video> by ZXing
+        };
+
         try {
           if (deviceId) {
             await codeReader.decodeFromVideoDevice(deviceId, video, onDecode);
@@ -219,44 +239,25 @@
             return;
           }
           throw new Error('No deviceId available');
-        } catch (e1) {
+        } catch {
           try {
             await codeReader.decodeFromConstraints({
-              video: {
-                facingMode: { ideal: 'environment' },
-                width: { ideal: 1280 },
-                height: { ideal: 720 }
-              },
+              video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
               audio: false
             }, video, onDecode);
             $('#status').textContent = 'Scanner running (constraints)';
             return;
-          } catch (e2) {
-            try {
-              await codeReader.decodeFromVideoDevice(null, video, onDecode);
-              $('#status').textContent = 'Scanner running (auto device)';
-              return;
-            } catch (e3) {
-              throw e3;
-            }
+          } catch {
+            await codeReader.decodeFromVideoDevice(null, video, onDecode);
+            $('#status').textContent = 'Scanner running (auto device)';
+            return;
           }
         }
       } catch (e) {
         $('#status').innerHTML = `<span class="danger">${e?.message || e}</span>`;
-        // Extra hint for iOS/Safari
         if (/NotAllowedError/i.test(String(e))) {
           $('#status').innerHTML += '<br><span class="hint">Tip: allow Camera permission in browser settings and reload.</span>';
         }
-      }
-
-      function onDecode(result, err, controls) {
-        if (result) {
-          addScan(result.getText().trim(), result.getBarcodeFormat());
-          $('#status').textContent = `Read: ${result.getText()} (${result.getBarcodeFormat()})`;
-        } else if (err && !(err instanceof NotFoundException) && !(err instanceof ChecksumException) && !(err instanceof FormatException)) {
-          $('#status').textContent = `Error: ${String(err)}`;
-        }
-        state.controls.stream = controls;
       }
     }
 
@@ -264,9 +265,10 @@
       try {
         state.scanning = false;
         state.controls.codeReader?.reset();
-        const tracks = $('#preview').srcObject?.getTracks?.() || [];
+        const vid = $('#preview');
+        const tracks = vid.srcObject?.getTracks?.() || [];
         tracks.forEach(t => t.stop());
-        $('#preview').srcObject = null;
+        vid.srcObject = null;
         $('#status').textContent = 'Scanner stopped';
       } catch {}
     }
@@ -275,12 +277,13 @@
       try {
         const video = $('#preview');
         const track = video.srcObject?.getVideoTracks?.()[0];
-        if (!track) return;
+        if (!track) { $('#status').textContent = 'No active camera'; return; }
         const cap = track.getCapabilities?.();
         if (!cap || !cap.torch) { $('#status').textContent = 'Torch not supported'; return; }
         state.controls.torchOn = !state.controls.torchOn;
         await track.applyConstraints({ advanced: [{ torch: state.controls.torchOn }] });
-      } catch (e) {
+        $('#status').textContent = state.controls.torchOn ? 'Torch ON' : 'Torch OFF';
+      } catch {
         $('#status').textContent = 'Unable to toggle torch';
       }
     }
@@ -288,37 +291,34 @@
     // ==== Submit ====
     function buildPayload() {
       const items = Object.values(state.cart).map(it => ({ barcode: it.barcode, qty: Number(it.qty), type: it.lastType || undefined }));
-      return {
-        timestamp: new Date().toISOString(),
-        user: $('#user').value || undefined,
-        items,
-      };
+      return { timestamp: new Date().toISOString(), user: $('#user').value || undefined, items };
     }
 
     function showPayload() {
-      const payload = buildPayload();
-      const json = JSON.stringify(payload, null, 2);
+      const json = JSON.stringify(buildPayload(), null, 2);
       $('#payload').value = json;
       $('#submitPanel').classList.remove('hidden');
     }
 
     async function doCopy() {
-      try { await navigator.clipboard.writeText($('#payload').value); $('#note').innerHTML = '<span class="ok">Copied to clipboard</span>'; } catch {}
+      try {
+        await navigator.clipboard.writeText($('#payload').value);
+        $('#note').innerHTML = '<span class="ok">Copied to clipboard</span>';
+      } catch {
+        $('#note').innerHTML = '<span class="danger">Clipboard not available</span>';
+      }
     }
 
     async function doShare() {
       try {
         const payload = $('#payload').value;
-        if (navigator.share) {
-          await navigator.share({ title: 'Inventory checkout', text: payload });
-        } else {
-          $('#note').textContent = 'Native share not supported';
-        }
+        if (navigator.share) await navigator.share({ title: 'Inventory checkout', text: payload });
+        else $('#note').textContent = 'Native share not supported';
       } catch {}
     }
 
     function downloadJSON() {
-      const blob = new Blob([$('#payload').value], { type: 'application/json' });
+      const blob = new Blob([$('#payload').value], { type: 'application/json;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url; a.download = 'inventory-checkout.json'; a.click();
@@ -339,14 +339,13 @@
       else state.cart[code].qty = normalizeQty(Number(state.cart[code].qty) + qty);
       $('#manualCode').value = '';
       changed();
-    };
-      else state.cart[code].qty = Number(state.cart[code].qty) + qty;
-      $('#manualCode').value = '';
-      changed();
     }
 
     // ==== Wiring ====
-    $('#camera').addEventListener('change', (e) => { state.controls.selectedDeviceId = e.target.value; if (state.scanning) { stopScanner(); startScanner(); } });
+    $('#camera').addEventListener('change', (e) => {
+      state.controls.selectedDeviceId = e.target.value;
+      if (state.scanning) { stopScanner(); startScanner(); }
+    });
     $('#start').onclick = startScanner;
     $('#stop').onclick = stopScanner;
     $('#torch').onclick = toggleTorch;
@@ -366,24 +365,3 @@
   </script>
 </body>
 </html>
-```
-
----
-
-## Deploy on GitHub Pages (quick)
-
-1. Create a public repo (e.g., `workshop-inventory-scanner`) and add this **`index.html`**.
-2. Commit & push to `main`.
-3. Repo → **Settings → Pages** → *Deploy from a branch* → Branch `main` → Folder `/ (root)` → **Save**.
-   Your URL will be `https://<username>.github.io/workshop-inventory-scanner/`.
-
-That’s it — open the URL on your phone, tap **Start scanner**, and you’re set.
-
----
-
-## Next (optional)
-
-* **PWA**: installable app icon + offline cache.
-* **Local CSV mapping** (barcode→name/unit) shown client‑side.
-* **Automatic submit hook** to an API when you’re ready to integrate with Excel.
-

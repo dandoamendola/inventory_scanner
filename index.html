@@ -1,20 +1,3 @@
-# Workshop Inventory — Mobile Web App (client‑only, local list)
-
-This is a **stand‑alone web app** (a single `index.html`) designed for **phones** on the shop floor. It does exactly one thing:
-
-1. **Scans** barcodes (**EAN‑13/EAN‑8/Code‑128**).
-2. **Adds** each scan to a **local list** (persisted in `localStorage`).
-3. Lets you **edit quantities** (+/‑, delete).
-4. **Submit**: produces a **JSON payload** (copy/share/download) to send wherever you want later (Excel/Server integration can come later).
-
-> No backend required. On GitHub Pages you’ll automatically have **HTTPS**, which is required to use the **camera** on mobile.
-
----
-
-## Single file — `index.html`
-
-> **Note:** fully working code below (HTML+CSS+JS). It includes ZXing via CDN, minimal styling, scan loop, quantity edits, and export (copy/share/download). Save as `index.html` and push to a GitHub repo with Pages enabled.
-
 ```html
 <!doctype html>
 <html lang="en">
@@ -403,3 +386,4 @@ That’s it — open the URL on your phone, tap **Start scanner**, and you’re 
 * **PWA**: installable app icon + offline cache.
 * **Local CSV mapping** (barcode→name/unit) shown client‑side.
 * **Automatic submit hook** to an API when you’re ready to integrate with Excel.
+

@@ -2,67 +2,71 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Inventory — Scanner</title>
   <style>
-    :root { --pad:14px; --radius:14px; }
-    body { font-family: system-ui,-apple-system,Segoe UI,Roboto,sans-serif; margin:0; background:#0b0c10; color:#e6e6e6; }
-    .container { max-width: 420px; margin: 0 auto; }
-    header { padding:var(--pad); display:flex; align-items:center; gap:10px; }
-    header h1 { font-size:18px; margin:0; font-weight:600; }
-    main { padding:var(--pad); }
-    .card { background:#15171d; border:1px solid #23262d; border-radius:var(--radius); padding:var(--pad); }
-
-    /* Compact preview + overlay for phones */
-    .previewWrap { position:relative; width:100%; height:140px; border-radius:12px; overflow:hidden; background:#000; }
-    #preview { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
-    .overlay { position:absolute; inset:0; pointer-events:auto; display:flex; align-items:center; justify-content:center; }
-    .overlay .guide { width:82%; height:34%; border:2px solid rgba(255,255,255,.95); border-radius:10px;
-      box-shadow:0 0 0 2000px rgba(0,0,0,.45); outline:1px solid rgba(0,0,0,.35); }
-    .shutter { position:absolute; inset:0; background:#fff; opacity:0; pointer-events:none; transition:opacity 140ms ease; }
-    .shutter.active { opacity:0.85; }
-
+    :root { --pad: 14px; --radius: 14px; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; background: #0b0c10; color: #e6e6e6; }
+    .container { max-width: 420px; margin: 0 auto; } /* phone width */
+    header { padding: var(--pad); display:flex; align-items:center; gap:10px; }
+    header h1 { font-size: 18px; margin:0; font-weight: 600; }
+    main { padding: var(--pad); }
+    .card { background:#15171d; border:1px solid #23262d; border-radius: var(--radius); padding: var(--pad); }
+    video { width: 100%; border-radius: 12px; background:#000; }
     .row { display:flex; gap:10px; align-items:center; }
     .row > * { flex:1; }
     .btn { appearance:none; border:1px solid #2c3038; background:#1f232b; color:#fff; padding:10px 14px; border-radius:10px; cursor:pointer; }
-    .btn:active { transform:translateY(1px); }
+    .btn:active { transform: translateY(1px); }
     .btn.primary { background:#4b7bec; border-color:#4b7bec; }
     .btn.ghost { background:transparent; }
-    .list { margin-top:10px; }
-    .item { display:grid; grid-template-columns:1fr auto auto auto; gap:10px; align-items:center; padding:10px; border-bottom:1px solid #23262d; }
+    .muted { opacity: .75; }
+    .list { margin-top: 10px; }
+    .item { display:grid; grid-template-columns: 1fr auto auto auto; gap:10px; align-items:center; padding:10px; border-bottom:1px solid #23262d; }
     .qtyBox { display:flex; gap:6px; align-items:center; }
-    .qty { min-width:44px; text-align:center; padding:8px; border-radius:10px; border:1px solid #2c3038; background:#101218; color:#fff; }
-    .pill { font-size:12px; padding:4px 8px; border:1px solid #2c3038; border-radius:999px; text-align:center; }
-    .status { margin-top:8px; font-size:13px; min-height:1.4em; }
-    .danger { color:#ff6b6b; }
-    .ok { color:#1dd1a1; }
+    .qty { min-width: 44px; text-align:center; padding:8px; border-radius:10px; border:1px solid #2c3038; background:#101218; color:#fff; }
+    .pill { font-size:12px; padding:4px 8px; border:1px solid #2c3038; border-radius:999px; }
+    .status { margin-top:8px; font-size:13px; min-height: 1.4em; }
+    .danger { color: #ff6b6b; }
+    .ok { color: #1dd1a1; }
+    .grid { display:grid; gap:10px; }
+    .kpi { display:flex; justify-content:space-between; font-size:13px; opacity:.85; }
+    .hidden { display:none; }
     .hr { height:1px; background:#23262d; margin:10px 0; }
+
+    /* Narrow preview + overlay window */
+    .previewWrap { position: relative; width: 100%; height: 140px; border-radius: 12px; overflow: hidden; background:#000; }
+    #preview { position:absolute; inset:0; width:100%; height:100%; object-fit: cover; }
+    .overlay { position:absolute; inset:0; pointer-events:auto; display:flex; align-items:center; justify-content:center; }
+    .overlay .guide {
+      width: 82%; height: 34%;
+      border: 2px solid rgba(255,255,255,.95);
+      border-radius: 10px;
+      box-shadow: 0 0 0 2000px rgba(0,0,0,.45);
+      outline: 1px solid rgba(0,0,0,.35);
+    }
+    /* Shutter flash */
+    .shutter { position:absolute; inset:0; background:#fff; opacity:0; pointer-events:none; transition:opacity 140ms ease; }
+    .shutter.active { opacity:0.85; }
   </style>
 </head>
 <body>
 <div class="container">
-  <header><h1>Inventory — Scanner</h1></header>
+  <header>
+    <h1>Inventory — Scanner</h1>
+  </header>
 
-  <main>
+  <main class="grid">
     <section class="card">
-      <div class="row" style="align-items:flex-end">
-        <div style="flex:2">
-          <label class="muted">Device / User</label>
-          <input id="user" class="qty" style="text-align:left;min-width:unset;" placeholder="e.g. Marco"/>
-        </div>
-        <div style="flex:1;text-align:right">
-          <button id="submit" class="btn primary">Submit</button>
-        </div>
+      <div class="grid">
+        <label class="muted">Device / User</label>
+        <input id="user" class="qty" style="text-align:left; min-width:unset;" placeholder="e.g. Marco" />
       </div>
-
       <div class="hr"></div>
 
-      <div class="grid" style="display:grid; gap:10px;">
-        <div>
-          <label class="muted">Camera</label>
-          <select id="camera" class="qty" style="text-align:left;min-width:unset;"></select>
-        </div>
+      <div class="grid">
+        <label class="muted">Camera</label>
+        <select id="camera" class="qty" style="text-align:left; min-width:unset;"></select>
 
         <div class="previewWrap" id="wrap">
           <video id="preview" playsinline muted autoplay></video>
@@ -71,7 +75,7 @@
         </div>
 
         <div class="row">
-          <button id="start" class="btn">Start</button>
+          <button id="start" class="btn primary">Start</button>
           <button id="stop" class="btn">Stop</button>
           <button id="torch" class="btn ghost">Torch</button>
           <button id="force" class="btn">Scan now</button>
@@ -80,415 +84,51 @@
       </div>
 
       <div class="hr"></div>
-
-      <div class="grid" style="display:grid; gap:10px;">
+      <div class="grid">
         <label class="muted">Manual entry</label>
         <div class="row">
-          <input id="manualCode" class="qty" placeholder="Barcode"/>
-          <input id="manualQty" class="qty" type="number" step="0.5" min="0.5" value="1"/>
+          <input id="manualCode" class="qty" placeholder="Barcode" />
+          <input id="manualQty" class="qty" type="number" step="0.5" min="0.5" value="1" />
           <button id="addManual" class="btn">Add</button>
         </div>
       </div>
     </section>
 
     <section class="card">
+      <div class="kpi">
+        <div>Items: <b id="kCount">0</b></div>
+        <div>Total qty: <b id="kQty">0</b></div>
+      </div>
       <div class="list" id="list"></div>
       <div class="row" style="margin-top:10px;">
         <button id="clear" class="btn">Clear</button>
+        <button id="submit" class="btn primary">Submit</button>
       </div>
+      <div class="status" id="note"></div>
     </section>
   </main>
 </div>
 
+<!-- ZXing UMDs -->
 <script src="https://unpkg.com/@zxing/library@0.21.2/umd/index.min.js"></script>
 <script src="https://unpkg.com/@zxing/browser@0.1.5/umd/zxing-browser.min.js"></script>
 <script>
-  // === CONFIG ===
+  // === CONFIG: your production /exec URL ===
   const GOOGLE_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxRiifyYgLi9EBm0CWVdngewCj8TenSlEs157mUNw19_bP30jGFYdmRa3laruE8FmzM/exec';
 
-  // === State / Utils ===
-  const STORAGE_KEY = 'inv_cart_v1';
-  const $ = (s) => document.querySelector(s);
-
-  let audioCtx = null;
-  function ensureAudio(){ try{ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended') audioCtx.resume(); }catch{} }
+  // === Audio beep ===
+  let audioCtx=null;
+  function ensureAudio(){ try{ if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended') audioCtx.resume(); }catch{} }
   function beep(freq=1800, ms=120, vol=0.06){ try{ ensureAudio(); const ctx=audioCtx; if(!ctx) return; const o=ctx.createOscillator(), g=ctx.createGain(); o.type='square'; o.frequency.value=freq; g.gain.value=vol; o.connect(g); g.connect(ctx.destination); o.start(); o.stop(ctx.currentTime + ms/1000);}catch{} }
 
-  function normalizeQty(v){ let n=Number(v); if(!Number.isFinite(n)) n=1; n=Math.max(0.5,n); n=Math.round(n*2)/2; const frac=Math.abs(n-Math.trunc(n)); if(frac!==0 && Math.abs(frac-0.5)>1e-9) n=Math.trunc(n)+0.5; return n; }
+  // === State & utils ===
+  const STORAGE_KEY='inv_cart_v1';
+  const $=(s)=>document.querySelector(s);
+  function normalizeQty(v){ let n=Number(v); if(!Number.isFinite(n)) n=1; n=Math.max(0.5,n); n=Math.round(n*2)/2; const f=Math.abs(n-Math.trunc(n)); if(f!==0 && Math.abs(f-0.5)>1e-9) n=Math.trunc(n)+0.5; return n; }
   function loadCart(){ try{ return JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}'); }catch{ return {}; } }
   function saveCart(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(state.cart)); }
+  function totalItems(){ return Object.keys(state.cart).length; }
+  function totalQty(){ return Object.values(state.cart).reduce((s,it)=>s+Number(it.qty||0),0); }
 
-  const state = {
-    cart: loadCart(), // { [barcode]: { barcode, qty, lastType } }
-    scanning:false,
-    controls:{ codeReader:null, selectedDeviceId:null, torchOn:false },
-    lastDecode:{ text:'', t:0 },
-    hints:null,
-    forceLock:false,
-  };
-
-  function renderList(){
-    const list=$('#list'); list.innerHTML='';
-    for(const it of Object.values(state.cart)){
-      const row=document.createElement('div');
-      row.className='item';
-      row.innerHTML=`
-        <div>
-          <div><b>${it.barcode}</b></div>
-          <div class="muted" style="font-size:12px;">${it.lastType||''}</div>
-        </div>
-        <div class="qtyBox">
-          <button class="btn" data-act="dec">–</button>
-          <input class="qty" data-role="qty" type="number" step="0.5" min="0.5" value="${it.qty}"/>
-          <button class="btn" data-act="inc">+</button>
-        </div>
-        <div class="pill">x</div>
-        <button class="btn danger" data-act="del">Remove</button>
-      `;
-      row.querySelector('[data-act="inc"]').onclick=()=>{ it.qty=normalizeQty(Number(it.qty)+1); changed(); };
-      row.querySelector('[data-act="dec"]').onclick=()=>{ it.qty=normalizeQty(Math.max(0.5,Number(it.qty)-1)); changed(); };
-      row.querySelector('[data-role="qty"]').onchange=(e)=>{ it.qty=normalizeQty(e.target.value); e.target.value=it.qty; changed(); };
-      row.querySelector('[data-act="del"]').onclick=()=>{ delete state.cart[it.barcode]; changed(); };
-      list.appendChild(row);
-    }
-  }
-  function changed(){ saveCart(); renderList(); }
-
-  function addScan(barcode, type){
-    if(!barcode) return;
-    if(!state.cart[barcode]) state.cart[barcode]={ barcode, qty:1, lastType:type||'' };
-    else state.cart[barcode].qty=normalizeQty(Number(state.cart[barcode].qty)+1);
-    beep(); navigator.vibrate?.(20);
-    changed();
-  }
-
-  // === Scanner ===
-  const { BrowserMultiFormatReader } = ZXingBrowser;
-  const { BarcodeFormat, DecodeHintType } = ZXing;
-
-  function fmtName(fmt){ for(const [k,v] of Object.entries(BarcodeFormat)) if(v===fmt) return k; return String(fmt); }
-  const benignErr = (err)=>!!(err && (/No MultiFormat Readers were able|checksum|format/i.test(String(err.message||err))));
-
-  async function listCameras(){
-    const tmp=await navigator.mediaDevices.getUserMedia({video:true, audio:false});
-    tmp.getTracks().forEach(t=>t.stop());
-    const devs=await navigator.mediaDevices.enumerateDevices();
-    return devs.filter(d=>d.kind==='videoinput');
-  }
-  const pickRear=(cams)=> (cams.find(c=>/back|rear|environment/i.test(c.label||''))?.deviceId ?? cams.at(-1)?.deviceId ?? cams[0]?.deviceId ?? null);
-
-  async function populateCameras(){
-    const sel=$('#camera'); sel.innerHTML='';
-    const cams=await listCameras();
-    cams.forEach((c,i)=>{ const opt=document.createElement('option'); opt.value=c.deviceId; opt.textContent=c.label||`Camera ${i+1}`; sel.appendChild(opt); });
-    const prefer=pickRear(cams); if(prefer) sel.value=prefer;
-    state.controls.selectedDeviceId = sel.value||null;
-  }
-
-  function buildHints(){
-    const hints=new Map();
-    hints.set(DecodeHintType.POSSIBLE_FORMATS,[BarcodeFormat.CODE_128, BarcodeFormat.EAN_13, BarcodeFormat.EAN_8]);
-    hints.set(DecodeHintType.TRY_HARDER,true);
-    state.hints=hints; return hints;
-  }
-
-  async function startScanner(){
-    ensureAudio();
-    if(!navigator.mediaDevices?.getUserMedia){ $('#status').innerHTML='<span class="danger">Camera API not supported.</span>'; return; }
-    try{
-      $('#status').textContent='Starting…';
-      await populateCameras();
-      const codeReader=new BrowserMultiFormatReader(buildHints(), 200);
-      state.controls.codeReader=codeReader; state.scanning=true;
-
-      const video=$('#preview');
-      const deviceId=state.controls.selectedDeviceId || $('#camera').value || null;
-
-      const onDecode=(result, err)=>{
-        if(state.forceLock) return;
-        if(result){
-          const text=result.getText().trim();
-          const now=Date.now();
-          if(text!==state.lastDecode.text || (now-state.lastDecode.t)>1200){
-            const typeName=fmtName(result.getBarcodeFormat?.());
-            addScan(text, typeName);
-            state.lastDecode={text,t:now};
-            $('#status').textContent=`Read: ${text} (${typeName})`;
-          }
-        }else if(err && !benignErr(err)){
-          $('#status').innerHTML=`<span class="danger">Scanner error: ${String(err.message||err)}</span>`;
-        }else{
-          $('#status').textContent='Scanning…';
-        }
-      };
-
-      try{
-        if(deviceId){ await codeReader.decodeFromVideoDevice(deviceId, video, onDecode); $('#status').textContent='Scanner running'; return; }
-        throw new Error('No deviceId');
-      }catch{
-        try{
-          await codeReader.decodeFromConstraints({ video:{ facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080} }, audio:false }, video, onDecode);
-          $('#status').textContent='Scanner running'; return;
-        }catch{
-          await codeReader.decodeFromVideoDevice(null, video, onDecode);
-          $('#status').textContent='Scanner running'; return;
-        }
-      }
-    }catch(e){
-      $('#status').innerHTML=`<span class="danger">${e?.message||e}</span>`;
-    }
-  }
-
-  async function stopScanner(){
-    try{
-      state.scanning=false;
-      state.controls.codeReader?.reset();
-      const vid=$('#preview');
-      const tracks=vid.srcObject?.getTracks?.()||[];
-      tracks.forEach(t=>t.stop());
-      vid.srcObject=null;
-      $('#status').textContent='Scanner stopped';
-    }catch{}
-  }
-
-  async function toggleTorch(){
-    try{
-      const track=$('#preview').srcObject?.getVideoTracks?.()[0];
-      if(!track){ $('#status').textContent='No active camera'; return; }
-      const cap=track.getCapabilities?.();
-      if(!cap || !cap.torch){ $('#status').textContent='Torch not supported'; return; }
-      state.controls.torchOn=!state.controls.torchOn;
-      await track.applyConstraints({ advanced:[{ torch:state.controls.torchOn }] });
-      $('#status').textContent= state.controls.torchOn ? 'Torch ON':'Torch OFF';
-    }catch{ $('#status').textContent='Unable to toggle torch'; }
-  }
-
-  // === Force scan: ROI -> enhanced -> fallbacks ===
-  function shutterFlash(){ const s=$('#shutter'); s.classList.add('active'); setTimeout(()=>s.classList.remove('active'),140); }
-  function getRoiFromOverlay(){
-    const video=$('#preview'), wrap=$('#wrap'), guide=$('#overlay .guide');
-    const vw=video.videoWidth, vh=video.videoHeight; if(!vw||!vh) return null;
-    const bw=wrap.clientWidth, bh=wrap.clientHeight;
-    const scale=Math.max(bw/vw, bh/vh); const xOff=(bw - vw*scale)/2, yOff=(bh - vh*scale)/2;
-    const gr=guide.getBoundingClientRect(), wr=wrap.getBoundingClientRect();
-    const left=gr.left - wr.left, top=gr.top - wr.top;
-    let sx=(left - xOff)/scale, sy=(top - yOff)/scale, sw=gr.width/scale, sh=gr.height/scale;
-    sx=Math.max(0, Math.min(vw, sx)); sy=Math.max(0, Math.min(vh, sy));
-    sw=Math.max(1, Math.min(vw - sx, sw)); sh=Math.max(1, Math.min(vh - sy, sh));
-    return { sx, sy, sw, sh };
-  }
-  function draw(video,sx,sy,sw,sh,scale){
-    const c=document.createElement('canvas');
-    c.width=Math.round(sw*scale); c.height=Math.round(sh*scale);
-    const ctx=c.getContext('2d',{willReadFrequently:true});
-    ctx.drawImage(video, sx,sy,sw,sh, 0,0,c.width,c.height);
-    return c;
-  }
-  function enhance1D(canvas){
-    // simple contrast + threshold to help 1D (EAN/CODE128)
-    const out=document.createElement('canvas'); out.width=canvas.width; out.height=canvas.height;
-    const sctx=canvas.getContext('2d'); const dctx=out.getContext('2d');
-    const img=sctx.getImageData(0,0,canvas.width,canvas.height); const data=img.data;
-    // local contrast
-    const contrast=1.6, mid=128;
-    for(let i=0;i<data.length;i+=4){
-      const r=data[i], g=data[i+1], b=data[i+2];
-      let y=0.2126*r + 0.7152*g + 0.0722*b;
-      y = (y - mid)*contrast + mid;
-      y = y<0?0: y>255?255:y;
-      const thr = y>130 ? 255 : 0;
-      data[i]=data[i+1]=data[i+2]=thr;
-    }
-    dctx.putImageData(img,0,0);
-    return out;
-  }
-  function rotate90(c){
-    const r=document.createElement('canvas'); r.width=c.height; r.height=c.width;
-    const ctx=r.getContext('2d',{willReadFrequently:true});
-    ctx.translate(r.width/2, r.height/2); ctx.rotate(Math.PI/2); ctx.drawImage(c,-c.width/2,-c.height/2); return r;
-  }
-  function tryDecode(reader, canvas){ try{ return reader.decodeFromCanvas(canvas); }catch{ return null; } }
-
-  async function forceScanNow(){
-    ensureAudio();
-    if(!state.scanning){ $('#status').textContent='Start the scanner first'; return; }
-    const video=$('#preview'); if(!video.videoWidth){ $('#status').textContent='Camera not ready…'; return; }
-
-    state.forceLock=true; shutterFlash(); try{ video.pause?.(); }catch{}
-    const reader=new BrowserMultiFormatReader(state.hints||buildHints());
-    const roi=getRoiFromOverlay(); let result=null;
-
-    if(roi){
-      for(const s of [3,2]){ // raw ROI
-        const c=draw(video, roi.sx,roi.sy,roi.sw,roi.sh, s);
-        if(result=tryDecode(reader,c)) break;
-        const ce=enhance1D(c);
-        if(result=tryDecode(reader,ce)) break;
-      }
-    }
-    if(!result){ // center strip (full width)
-      const vw=video.videoWidth, vh=video.videoHeight, stripH=Math.max(80, Math.round(vh*0.28));
-      const sy=Math.round(vh/2 - stripH/2);
-      const c=draw(video, 0,sy, vw,stripH, 2);
-      if(!(result=tryDecode(reader,c))) result=tryDecode(reader, enhance1D(c));
-    }
-    if(!result && roi){ // rotated ROI
-      const c=draw(video, roi.sx,roi.sy,roi.sw,roi.sh, 3);
-      const r=rotate90(c);
-      if(!(result=tryDecode(reader,r))) result=tryDecode(reader, enhance1D(r));
-    }
-    if(!result){ // full frame
-      const vw=video.videoWidth, vh=video.videoHeight;
-      const scale=Math.min(1.6, 1200/Math.max(vw,vh));
-      const c=draw(video, 0,0, vw,vh, scale);
-      if(!(result=tryDecode(reader,c))) result=tryDecode(reader, enhance1D(c));
-    }
-
-    reader.reset(); try{ await video.play?.(); }catch{} state.forceLock=false;
-
-    if(result){
-      const text=result.getText().trim();
-      const typeName=fmtName(result.getBarcodeFormat?.());
-      addScan(text, typeName);
-      $('#status').textContent=`Read: ${text} (${typeName})`;
-    }else{
-      $('#status').textContent='No code in rectangle';
-    }
-  }
-
-  // === Build rows for Submit (A/E/I) ===
-  function buildRow9(it){
-    const qtyNum=normalizeQty(it.qty);
-    const t=String(it.lastType||'').toUpperCase();
-    const row=['','','','','','','','','']; // A..I
-    if(t==='CODE_128') row[0]=String(it.barcode);                         // A
-    if(t==='EAN_13'||t==='EAN_8'||t==='EAN') row[4]=String(it.barcode);   // E
-    row[8]=qtyNum;                                                        // I (Number)
-    return row;
-  }
-  function buildSheetRows(){
-    return Object.values(state.cart)
-      .filter(it=>['CODE_128','EAN_13','EAN_8','EAN'].includes(String(it.lastType).toUpperCase()))
-      .map(buildRow9);
-  }
-
-  // === Submit (no confirmation, auto-clear) ===
-  function validateRows(rows){
-    let valid=[], invalid=0;
-    for(const r of rows){
-      const hasCode = (r[0] && String(r[0]).trim()) || (r[4] && String(r[4]).trim());
-      const hasQty  = r[8] !== '' && r[8] != null && !Number.isNaN(Number(r[8]));
-      if(hasCode && hasQty) valid.push(r); else invalid++;
-    }
-    return { valid, invalid };
-  }
-
-  async function submitToSheet(){
-    const rowsAll=buildSheetRows();
-    const { valid, invalid } = validateRows(rowsAll);
-    if(!valid.length){ $('#status').innerHTML='<span class="danger">No valid rows (need code + qty).</span>'; return; }
-
-    const btn=$('#submit'); btn.disabled=true; btn.textContent='Submitting…';
-    try{
-      const resp=await fetch(GOOGLE_WEB_APP_URL,{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ rows:valid }) });
-      if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      let data={}; try{ data=await resp.json(); }catch{}
-      if(data.ok){
-        state.cart={}; changed();
-        $('#status').innerHTML=`<span class="ok">Submitted ${data.appended} rows${invalid?`, ${invalid} skipped`:''}.</span>`;
-      }else{ throw new Error(data.error||'Script error'); }
-    }catch{
-      try{
-        await fetch(GOOGLE_WEB_APP_URL,{ method:'POST', mode:'no-cors', body:JSON.stringify({ rows:valid }) });
-        state.cart={}; changed();
-        $('#status').innerHTML=`<span class="ok">Submitted (no-cors). Cart cleared.${invalid?` ${invalid} skipped locally.`:''}</span>`;
-      }catch{
-        $('#status').innerHTML='<span class="danger">Submit failed</span>';
-      }
-    }finally{
-      btn.disabled=false; btn.textContent='Submit';
-    }
-  }
-
-  // === Clear / Manual (8 chars => CODE_128; else EAN) ===
-  function clearAll(){ if(!confirm('Clear the list?')) return; state.cart={}; changed(); }
-  function addManual(){
-    ensureAudio();
-    const code=$('#manualCode').value.trim();
-    const qty=normalizeQty($('#manualQty').value||1);
-    if(!code) return;
-    const type=(code.length===8)?'CODE_128':'EAN';
-    if(!state.cart[code]) state.cart[code]={ barcode:code, qty, lastType:type };
-    else state.cart[code].qty=normalizeQty(Number(state.cart[code].qty)+qty);
-    $('#manualCode').value=''; beep(); changed();
-  }
-
-  // === Wiring ===
-  $('#camera').addEventListener('change',(e)=>{ state.controls.selectedDeviceId=e.target.value; if(state.scanning){ stopScanner(); startScanner(); } });
-  $('#start').onclick=startScanner;
-  $('#stop').onclick=stopScanner;
-  $('#torch').onclick=toggleTorch;
-  $('#force').onclick=()=>{ ensureAudio(); forceScanNow(); };
-  $('#overlay').onclick=()=>{ ensureAudio(); forceScanNow(); };
-  $('#submit').onclick=submitToSheet;
-  $('#clear').onclick=clearAll;
-  $('#addManual').onclick=addManual;
-
-  (async()=>{ renderList(); try{ await populateCameras(); }catch{} })();
-</script>
-</body>
-</html>
-
-<!-- apps-script/Code.gs -->
-/**
- * Appends validated 9-column rows to the FIRST sheet (gid=0) of the provided spreadsheet.
- * A = Code128, E = EAN, I = Qty (numeric).
- */
-var SHEET_ID = '1gjspgV558FmBZmw9PiWYxmAx12IXdTu4CCyv2jwan8k'; // your sheet ID
-
-function doPost(e) {
-  try {
-    var body = (e && e.postData && e.postData.contents) ? e.postData.contents : '';
-    var data = body ? JSON.parse(body) : {};
-    var rows = Array.isArray(data.rows) ? data.rows : [];
-    if (!rows.length) return _json({ ok: false, error: 'No rows' });
-
-    var out = [];
-    var skipped = 0;
-
-    for (var i = 0; i < rows.length; i++) {
-      var r = Array.isArray(rows[i]) ? rows[i].slice(0, 9) : [];
-      while (r.length < 9) r.push('');
-      var a = r[0] != null ? String(r[0]).trim() : '';     // A
-      var ean = r[4] != null ? String(r[4]).trim() : '';   // E
-      var qraw = r[8];                                     // I
-
-      var hasCode = !!(a || ean);
-      var q = (typeof qraw === 'number') ? qraw : parseFloat(String(qraw).replace(',', '.'));
-      var hasQty = (qraw !== '' && qraw != null && !isNaN(q));
-
-      if (hasCode && hasQty) {
-        var row = ['', '', '', '', '', '', '', '', ''];
-        row[0] = a;
-        row[4] = ean;
-        row[8] = q; // numeric
-        out.push(row);
-      } else {
-        skipped++;
-      }
-    }
-
-    if (!out.length) return _json({ ok: false, error: 'No valid rows (need code + qty)', skipped: skipped });
-
-    var ss = SpreadsheetApp.openById(SHEET_ID);
-    var sheet = ss.getSheets()[0]; // gid=0
-    var startRow = sheet.getLastRow() + 1;
-    sheet.getRange(startRow, 1, out.length, 9).setValues(out);
-
-    return _json({ ok: true, appended: out.length, skipped: skipped });
-  } catch (err) {
-    return _json({ ok: false, error: String(err && err.message || err) });
-  }
-}
-function doGet(){ return _json({ ok:true, info:'POST { rows:[[A..I],...]} (A/E code, I qty number)' }); }
-function _json(obj){ return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON); }
+  const state={
+    cart: loadCart(), // { [barcode]: { barcode, qty, las

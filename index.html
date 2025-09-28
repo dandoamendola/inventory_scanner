@@ -6,7 +6,7 @@
   <title>Inventory — Scanner</title>
   <style>
     :root { --pad: 14px; --radius: 14px; }
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; background: #0b0c10; color: #e6e6e6; }
+    body { font-family: system-ui,-apple-system,Segoe UI,Roboto,sans-serif; margin:0; background:#0b0c10; color:#e6e6e6; }
     .container { max-width: 420px; margin: 0 auto; }
     header { padding: var(--pad); display:flex; align-items:center; gap:10px; }
     header h1 { font-size: 18px; margin:0; font-weight: 600; }
@@ -19,31 +19,30 @@
     .btn:active { transform: translateY(1px); }
     .btn.primary { background:#4b7bec; border-color:#4b7bec; }
     .btn.ghost { background:transparent; }
-    .muted { opacity: .75; }
-    .list { margin-top: 10px; }
-    .item { display:grid; grid-template-columns: 1fr auto auto auto; gap:10px; align-items:center; padding:10px; border-bottom:1px solid #23262d; }
+    .muted { opacity:.75; }
+    .list { margin-top:10px; }
+    .item { display:grid; grid-template-columns:1fr auto auto auto; gap:10px; align-items:center; padding:10px; border-bottom:1px solid #23262d; }
     .qtyBox { display:flex; gap:6px; align-items:center; }
-    .qty { min-width: 44px; text-align:center; padding:8px; border-radius:10px; border:1px solid #2c3038; background:#101218; color:#fff; }
+    .qty { min-width:44px; text-align:center; padding:8px; border-radius:10px; border:1px solid #2c3038; background:#101218; color:#fff; }
     .pill { font-size:12px; padding:4px 8px; border:1px solid #2c3038; border-radius:999px; }
-    .status { margin-top:8px; font-size:13px; min-height: 1.4em; }
-    .danger { color: #ff6b6b; }
-    .ok { color: #1dd1a1; }
+    .status { margin-top:8px; font-size:13px; min-height:1.4em; }
+    .ok { color:#1dd1a1; } .danger { color:#ff6b6b; }
     .grid { display:grid; gap:10px; }
     .kpi { display:flex; justify-content:space-between; font-size:13px; opacity:.85; }
     .hidden { display:none; }
     .hr { height:1px; background:#23262d; margin:10px 0; }
-    /* Narrow preview + overlay window */
-    .previewWrap { position: relative; width: 100%; height: 140px; border-radius: 12px; overflow: hidden; background:#000; }
-    #preview { position:absolute; inset:0; width:100%; height:100%; object-fit: cover; }
+
+    /* compact preview + overlay */
+    .previewWrap { position:relative; width:100%; height:140px; border-radius:12px; overflow:hidden; background:#000; }
+    #preview { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
     .overlay { position:absolute; inset:0; pointer-events:auto; display:flex; align-items:center; justify-content:center; }
     .overlay .guide {
-      width: 82%; height: 34%;
-      border: 2px solid rgba(255,255,255,.95);
-      border-radius: 10px;
-      box-shadow: 0 0 0 2000px rgba(0,0,0,.45);
-      outline: 1px solid rgba(0,0,0,.35);
+      width:82%; height:34%;
+      border:2px solid rgba(255,255,255,.95);
+      border-radius:10px;
+      box-shadow:0 0 0 2000px rgba(0,0,0,.45);
+      outline:1px solid rgba(0,0,0,.35);
     }
-    /* Shutter flash */
     .shutter { position:absolute; inset:0; background:#fff; opacity:0; pointer-events:none; transition:opacity 140ms ease; }
     .shutter.active { opacity:0.85; }
   </style>
@@ -56,13 +55,13 @@
     <section class="card">
       <div class="grid">
         <label class="muted">Device / User</label>
-        <input id="user" class="qty" style="text-align:left; min-width:unset;" placeholder="e.g. Marco" />
+        <input id="user" class="qty" style="text-align:left;min-width:unset;" placeholder="e.g. Marco"/>
       </div>
       <div class="hr"></div>
 
       <div class="grid">
         <label class="muted">Camera</label>
-        <select id="camera" class="qty" style="text-align:left; min-width:unset;"></select>
+        <select id="camera" class="qty" style="text-align:left;min-width:unset;"></select>
 
         <div class="previewWrap" id="wrap">
           <video id="preview" playsinline muted autoplay></video>
@@ -83,8 +82,8 @@
       <div class="grid">
         <label class="muted">Manual entry</label>
         <div class="row">
-          <input id="manualCode" class="qty" placeholder="Barcode" />
-          <input id="manualQty" class="qty" type="number" step="0.5" min="0.5" value="1" />
+          <input id="manualCode" class="qty" placeholder="Barcode"/>
+          <input id="manualQty" class="qty" type="number" step="0.5" min="0.5" value="1"/>
           <button id="addManual" class="btn">Add</button>
         </div>
       </div>
@@ -182,17 +181,6 @@
   function fmtName(fmt){ for(const [k,v] of Object.entries(BarcodeFormat)) if(v===fmt) return k; return String(fmt); }
   const benignErr=(err)=>!!(err && (/No MultiFormat Readers were able|checksum|format/i.test(String(err.message||err))));
 
-  // EAN-13 validation (digits + checksum)
-  function isValidEAN13(txt){
-    if (!/^\d{13}$/.test(txt)) return false;
-    const digits = txt.split('').map(d=>d.charCodeAt(0)-48);
-    const check = digits[12];
-    let sum = 0;
-    for (let i = 0; i < 12; i++) sum += (i % 2 === 0) ? digits[i] : digits[i] * 3;
-    const calc = (10 - (sum % 10)) % 10;
-    return calc === check;
-  }
-
   function isAllowedFormat(fmt){
     return fmt === BarcodeFormat.CODE_128 || fmt === BarcodeFormat.EAN_13; // EAN_8 disabled
   }
@@ -213,19 +201,11 @@
     state.controls.selectedDeviceId=sel.value||null;
   }
 
-  // Hints for continuous scan (both formats, EAN listed first but ZXing may not honor order)
   function buildHints(){
     const hints=new Map();
-    hints.set(DecodeHintType.POSSIBLE_FORMATS,[BarcodeFormat.EAN_13, BarcodeFormat.CODE_128]);
+    hints.set(DecodeHintType.POSSIBLE_FORMATS,[BarcodeFormat.CODE_128, BarcodeFormat.EAN_13]);
     hints.set(DecodeHintType.TRY_HARDER,true);
     state.hints=hints; return hints;
-  }
-  // Hints for EAN-first passes (force scan)
-  function buildHintsEANOnly(){
-    const hints=new Map();
-    hints.set(DecodeHintType.POSSIBLE_FORMATS,[BarcodeFormat.EAN_13]);
-    hints.set(DecodeHintType.TRY_HARDER,true);
-    return hints;
   }
 
   async function startScanner(){
@@ -246,7 +226,6 @@
           const fmt = result.getBarcodeFormat?.();
           const text = result.getText().trim();
           if (!isAllowedFormat(fmt)) { $('#status').textContent='Ignored: unsupported symbology'; return; }
-          if (fmt === BarcodeFormat.EAN_13 && !isValidEAN13(text)) { $('#status').textContent='Ignored: invalid EAN-13'; return; }
           addScan(text, fmtName(fmt));
           $('#status').textContent=`Read: ${text} (${fmtName(fmt)})`;
         }else if(err && !benignErr(err)){
@@ -306,7 +285,7 @@
     }catch{ $('#status').textContent='Unable to toggle torch'; }
   }
 
-  // Force scan (EAN-first → then both)
+  // Force scan (ROI + simple fallbacks; minimal extra work)
   function shutterFlash(){ const s=$('#shutter'); s.classList.add('active'); setTimeout(()=>s.classList.remove('active'),140); }
   function getRoiFromOverlay(){
     const video=$('#preview'), wrap=$('#wrap'), guide=$('#overlay .guide');
@@ -324,18 +303,6 @@
     const c=document.createElement('canvas'); c.width=Math.round(sw*scale); c.height=Math.round(sh*scale);
     const ctx=c.getContext('2d',{willReadFrequently:true}); ctx.drawImage(video, sx,sy,sw,sh, 0,0, c.width,c.height); return c;
   }
-  function enhance1D(canvas){
-    const out=document.createElement('canvas'); out.width=canvas.width; out.height=canvas.height;
-    const sctx=canvas.getContext('2d'), dctx=out.getContext('2d');
-    const img=sctx.getImageData(0,0,canvas.width,canvas.height), data=img.data;
-    const contrast=1.6, mid=128;
-    for(let i=0;i<data.length;i+=4){
-      const r=data[i],g=data[i+1],b=data[i+2];
-      let y=0.2126*r+0.7152*g+0.0722*b; y=(y-mid)*contrast+mid; y=y<0?0:y>255?255:y;
-      const thr=y>130?255:0; data[i]=data[i+1]=data[i+2]=thr;
-    }
-    dctx.putImageData(img,0,0); return out;
-  }
   function rotate90(c){ const r=document.createElement('canvas'); r.width=c.height; r.height=c.width;
     const ctx=r.getContext('2d',{willReadFrequently:true}); ctx.translate(r.width/2,r.height/2); ctx.rotate(Math.PI/2); ctx.drawImage(c,-c.width/2,-c.height/2); return r; }
   function tryDecode(reader, c){ try{ return reader.decodeFromCanvas(c); }catch{ return null; } }
@@ -346,57 +313,38 @@
     const video=$('#preview'); if(!video.videoWidth){ $('#status').textContent='Camera not ready…'; return; }
 
     state.forceLock=true; shutterFlash(); try{ video.pause?.(); }catch{}
-    // 1) EAN-only reader
-    const readerEAN = new BrowserMultiFormatReader(buildHintsEANOnly());
-    // 2) Fallback reader (both)
-    const readerBoth = new BrowserMultiFormatReader(state.hints || buildHints());
-
+    const reader=new BrowserMultiFormatReader(state.hints||buildHints());
     const roi=getRoiFromOverlay(); let result=null;
 
-    // --- EAN-first passes ---
-    if(roi && !result){
-      for(const s of [3,2]){
+    if(roi){
+      for(const s of [2]){ // one pass for speed
         const c=draw(video, roi.sx,roi.sy,roi.sw,roi.sh, s);
-        if(result=tryDecode(readerEAN,c)) break;
-        const ce=enhance1D(c);
-        if(result=tryDecode(readerEAN,ce)) break;
+        if(result=tryDecode(reader,c)) break;
       }
     }
     if(!result){
       const vw=video.videoWidth, vh=video.videoHeight, stripH=Math.max(80, Math.round(vh*0.28));
       const sy=Math.round(vh/2 - stripH/2);
       const c=draw(video, 0,sy, vw,stripH, 2);
-      if(!(result=tryDecode(readerEAN,c))) result=tryDecode(readerEAN, enhance1D(c));
+      result=tryDecode(reader,c);
     }
     if(!result && roi){
-      const c=draw(video, roi.sx,roi.sy,roi.sw,roi.sh, 3);
+      const c=draw(video, roi.sx,roi.sy,roi.sw,roi.sh, 2);
       const r=rotate90(c);
-      if(!(result=tryDecode(readerEAN,r))) result=tryDecode(readerEAN, enhance1D(r));
-    }
-
-    // --- Fallback to both formats if still nothing ---
-    if(!result && roi){
-      for(const s of [3,2]){
-        const c=draw(video, roi.sx,roi.sy,roi.sw,roi.sh, s);
-        if(result=tryDecode(readerBoth,c)) break;
-        const ce=enhance1D(c);
-        if(result=tryDecode(readerBoth,ce)) break;
-      }
+      result=tryDecode(reader,r);
     }
     if(!result){
       const vw=video.videoWidth, vh=video.videoHeight;
-      const c=draw(video, 0,0, vw,vh, Math.min(1.6,1200/Math.max(vw,vh)));
-      if(!(result=tryDecode(readerBoth,c))) result=tryDecode(readerBoth, enhance1D(c));
+      const c=draw(video, 0,0, vw,vh, Math.min(1.4,1000/Math.max(vw,vh)));
+      result=tryDecode(reader,c);
     }
 
-    readerEAN.reset(); readerBoth.reset();
-    try{ await video.play?.(); }catch{} state.forceLock=false;
+    reader.reset(); try{ await video.play?.(); }catch{} state.forceLock=false;
 
     if(result){
       const fmt = result.getBarcodeFormat?.();
       const text = result.getText().trim();
       if (!isAllowedFormat(fmt)) { $('#status').textContent='Ignored: unsupported symbology'; return; }
-      if (fmt === BarcodeFormat.EAN_13 && !isValidEAN13(text)) { $('#status').textContent='Ignored: invalid EAN-13'; return; }
       addScan(text, fmtName(fmt));
       $('#status').textContent=`Read: ${text} (${fmtName(fmt)})`;
     }else{
@@ -411,7 +359,7 @@
     const row=['','','','','','','','',''];
     if(t==='CODE_128') row[0]=String(it.barcode);      // A
     if(t==='EAN_13')   row[4]=String(it.barcode);      // E
-    row[8]=qtyNum;                                     // I (Number)
+    row[8]=qtyNum;                                     // I
     return row;
   }
   function buildSheetRows(){
@@ -458,13 +406,13 @@
   }
 
   function clearAll(){ if(!confirm('Clear the list?')) return; state.cart={}; changed(); }
-  // Manual: 13 digits + checksum ⇒ EAN_13; else CODE_128
+  // Manual: 13 digits ⇒ EAN_13; else CODE_128
   function addManual(){
     ensureAudio();
     const code=$('#manualCode').value.trim();
     const qty=normalizeQty($('#manualQty').value||1);
     if(!code) return;
-    const type = (/^\d{13}$/.test(code) && isValidEAN13(code)) ? 'EAN_13' : 'CODE_128';
+    const type=(/^\d{13}$/.test(code)) ? 'EAN_13' : 'CODE_128';
     if(!state.cart[code]) state.cart[code]={ barcode: code, qty, lastType: type };
     else state.cart[code].qty=normalizeQty(Number(state.cart[code].qty)+qty);
     $('#manualCode').value=''; beep(); changed();

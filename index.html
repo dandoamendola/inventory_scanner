@@ -1,165 +1,344 @@
+# Workshop Inventory — Mobile Web App (client‑only, local list)
+
+This is a **stand‑alone web app** (a single `index.html`) designed for **phones** on the shop floor. It does exactly one thing:
+
+1. **Scans** barcodes (**EAN‑13/EAN‑8/Code‑128**).
+2. **Adds** each scan to a **local list** (persisted in `localStorage`).
+3. Lets you **edit quantities** (+/‑, delete).
+4. **Submit**: produces a **JSON payload** (copy/share/download) to send wherever you want later (Excel/Server integration can come later).
+
+> No backend required. On GitHub Pages you’ll automatically have **HTTPS**, which is required to use the **camera** on mobile.
+
+---
+
+## Single file — `index.html`
+
+> **Note:** fully working code below (HTML+CSS+JS). It includes ZXing via CDN, minimal styling, scan loop, quantity edits, and export (copy/share/download). Save as `index.html` and push to a GitHub repo with Pages enabled.
+
+```html
 <!doctype html>
-<html lang="it">
+<html lang="en">
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>ZXing Live Debug</title>
-<style>
-  body{font-family:Arial,Helvetica,sans-serif;margin:12px;background:#fff;color:#111}
-  h1{font-size:18px}
-  #controls { display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap }
-  select,button{padding:8px;border-radius:6px;border:1px solid #ccc}
-  #videoWrap{width:100%;max-width:720px;height:420px;background:#000;display:flex;align-items:center;justify-content:center;position:relative}
-  video{width:100%;height:100%;object-fit:cover}
-  #logs{white-space:pre-wrap;background:#111;color:#0f0;padding:8px;height:220px;overflow:auto;font-family:monospace;font-size:12px;border-radius:6px;margin-top:8px}
-  .note{font-size:13px;color:#666;margin-top:8px}
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Inventory — Scanner</title>
+  <style>
+    :root { --pad: 14px; --radius: 14px; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; background: #0b0c10; color: #e6e6e6; }
+    header { padding: var(--pad); display:flex; align-items:center; gap:10px; }
+    header h1 { font-size: 18px; margin:0; font-weight: 600; }
+    main { padding: var(--pad); }
+    .card { background:#15171d; border:1px solid #23262d; border-radius: var(--radius); padding: var(--pad); }
+    video { width: 100%; border-radius: 12px; background:#000; }
+    .row { display:flex; gap:10px; align-items:center; }
+    .row > * { flex:1; }
+    .btn { appearance:none; border:1px solid #2c3038; background:#1f232b; color:#fff; padding:10px 14px; border-radius:10px; cursor:pointer; }
+    .btn:active { transform: translateY(1px); }
+    .btn.primary { background:#4b7bec; border-color:#4b7bec; }
+    .btn.ghost { background:transparent; }
+    .muted { opacity: .75; }
+    .list { margin-top: 10px; }
+    .item { display:grid; grid-template-columns: 1fr auto auto auto; gap:10px; align-items:center; padding:10px; border-bottom:1px solid #23262d; }
+    .qtyBox { display:flex; gap:6px; align-items:center; }
+    .qty { min-width: 44px; text-align:center; padding:8px; border-radius:10px; border:1px solid #2c3038; background:#101218; color:#fff; }
+    .pill { font-size:12px; padding:4px 8px; border:1px solid #2c3038; border-radius:999px; }
+    .status { margin-top:8px; font-size:13px; }
+    .danger { color: #ff6b6b; }
+    .ok { color: #1dd1a1; }
+    .grid { display:grid; gap:10px; }
+    .kpi { display:flex; justify-content:space-between; font-size:13px; opacity:.85; }
+    .hint { font-size: 12px; opacity:.8; }
+    .hidden { display:none; }
+    .hr { height:1px; background:#23262d; margin:10px 0; }
+  </style>
 </head>
 <body>
-<h1>ZXing Live Debug — test rapido</h1>
-<div id="controls">
-  <button id="enum">Enumerate devices</button>
-  <select id="cams"></select>
-  <button id="start">Start ZXing Live</button>
-  <button id="stop">Stop</button>
-  <button id="oneframe">Decode single frame (canvas)</button>
-  <label style="margin-left:8px"><input type="checkbox" id="pauseOnResult" checked> pause 1.5s on result</label>
-</div>
+  <header>
+    <h1>Inventory — Scanner</h1>
+  </header>
 
-<div id="videoWrap"><video id="video" playsinline autoplay muted></video></div>
+  <main class="grid">
+    <section class="card">
+      <div class="grid">
+        <label class="muted">Device / User</label>
+        <input id="user" class="qty" style="text-align:left; min-width:unset;" placeholder="e.g. Marco" />
+        <div class="hint">(Optional) will be included in the payload.</div>
+      </div>
+      <div class="hr"></div>
+      <div class="grid">
+        <label class="muted">Camera</label>
+        <select id="camera" class="qty" style="text-align:left; min-width:unset;"></select>
+        <video id="preview" playsinline muted></video>
+        <div class="row">
+          <button id="start" class="btn primary">Start scanner</button>
+          <button id="stop" class="btn">Stop</button>
+          <button id="torch" class="btn ghost">Torch</button>
+        </div>
+        <div class="status" id="status"></div>
+      </div>
+      <div class="hr"></div>
+      <div class="grid">
+        <label class="muted">Manual entry</label>
+        <div class="row">
+          <input id="manualCode" class="qty" placeholder="Barcode" />
+          <input id="manualQty" class="qty" type="number" step="0.01" min="0.01" value="1" />
+          <button id="addManual" class="btn">Add</button>
+        </div>
+      </div>
+    </section>
 
-<div class="note">
-  <strong>Istruzioni:</strong> apri la pagina via HTTPS (GitHub Pages o server). Su iPhone usa Safari e abilita Web Inspector su Mac per vedere la console. Premi "Enumerate devices" quindi seleziona la camera preferita e premi "Start ZXing Live". Incolla qui i log se non funziona.
-</div>
+    <section class="card">
+      <div class="kpi">
+        <div>Items: <b id="kCount">0</b></div>
+        <div>Total qty: <b id="kQty">0</b></div>
+      </div>
+      <div class="list" id="list"></div>
+      <div class="row" style="margin-top:10px;">
+        <button id="clear" class="btn">Clear</button>
+        <button id="submit" class="btn primary">Submit</button>
+      </div>
+      <div class="status" id="note"></div>
+    </section>
 
-<div id="logs"></div>
+    <section id="submitPanel" class="card hidden">
+      <h3>Payload ready</h3>
+      <div class="hint">Copy, share, or download the JSON. Then you can clear the list.</div>
+      <textarea id="payload" style="width:100%; height:160px; margin-top:8px; border-radius:10px; background:#101218; color:#eee; border:1px solid #2c3038; padding:10px;"></textarea>
+      <div class="row" style="margin-top:8px;">
+        <button id="copy" class="btn">Copy</button>
+        <button id="share" class="btn">Share</button>
+        <button id="download" class="btn">Download .json</button>
+      </div>
+    </section>
+  </main>
 
-<!-- Include ZXing local file (ensure zxing-browser.min.js is in same folder) -->
-<script src="zxing-browser.min.js"></script>
+  <!-- ZXing -->
+  <script src="https://unpkg.com/@zxing/browser@latest"></script>
+  <script>
+    // ==== State & Utils ====
+    const STORAGE_KEY = 'inv_cart_v1';
+    const $ = (sel) => document.querySelector(sel);
+    const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
-<script>
-const logEl = document.getElementById('logs');
-function dbg(...args){ const t = new Date().toISOString(); logEl.textContent = t + ' | ' + args.map(a=> (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' ') + '\\n' + logEl.textContent; console.log(...args); }
-dbg('Script loaded. ZXing available on window:', !!window.ZXingBrowser, 'window keys:', Object.keys(window).slice(0,50));
+    const state = {
+      cart: loadCart(), // { [barcode]: { barcode, qty, lastType } }
+      scanning: false,
+      controls: { stream: null, codeReader: null, selectedDeviceId: null, torchOn: false },
+    };
 
-let codeReader = null;
-let currentStream = null;
-let currentDeviceId = null;
-let lastResultTs = 0;
-const PAUSE_MS = 1500;
-
-document.getElementById('enum').addEventListener('click', async ()=>{
-  try{
-    dbg('Enumerating devices...');
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const vids = devices.filter(d=>d.kind==='videoinput');
-    const sel = document.getElementById('cams');
-    sel.innerHTML = '';
-    vids.forEach(d=>{ const o = document.createElement('option'); o.value = d.deviceId; o.text = d.label || ('camera '+(sel.length+1)); sel.appendChild(o); });
-    dbg('Found video inputs:', vids.length, vids.map(v=>v.label || v.deviceId));
-  }catch(e){ dbg('enumerateDevices error', e); }
-});
-
-document.getElementById('start').addEventListener('click', async ()=>{
-  try{
-    if(!window.ZXingBrowser || !window.ZXingBrowser.BrowserBarcodeReader){
-      dbg('ZXingBrowser.BrowserBarcodeReader not found on window. window.ZXingBrowser=', window.ZXingBrowser);
-      return;
+    function loadCart() {
+      try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch { return {}; }
     }
-    if(codeReader) { dbg('codeReader already running — resetting'); try{ codeReader.reset(); }catch(_){ } codeReader = null; }
-    codeReader = new ZXingBrowser.BrowserBarcodeReader();
-    dbg('Created BrowserBarcodeReader instance', !!codeReader);
-    const sel = document.getElementById('cams');
-    currentDeviceId = sel.value || null;
-    dbg('Starting decodeFromVideoDevice with deviceId:', currentDeviceId || '(null / default)');
-    // start decoding into the video element (must pass id or element)
-    await codeReader.decodeFromVideoDevice(currentDeviceId, 'video', (result, err) => {
-      if(result){
-        const text = (result.text || '').trim();
-        dbg('ZXing LIVE RESULT:', text, 'rawResult:', result);
-        // dedupe
-        const now = Date.now();
-        if(now - lastResultTs < 1200){ dbg('Ignored duplicate (debounce)'); return; }
-        lastResultTs = now;
-        if(document.getElementById('pauseOnResult').checked){
-          dbg('Pausing on result for', PAUSE_MS, 'ms');
-          stopZXingLive();
-          setTimeout(()=>{ dbg('Resuming after pause'); startZXingLiveAgain(); }, PAUSE_MS);
+    function saveCart() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state.cart)); }
+
+    function totalItems() { return Object.keys(state.cart).length; }
+    function totalQty() { return Object.values(state.cart).reduce((s, it) => s + Number(it.qty || 0), 0); }
+
+    function renderList() {
+      $('#list').innerHTML = '';
+      const entries = Object.values(state.cart);
+      for (const it of entries) {
+        const row = document.createElement('div');
+        row.className = 'item';
+        row.innerHTML = `
+          <div>
+            <div><b>${it.barcode}</b></div>
+            <div class="muted" style="font-size:12px;">${it.lastType || ''}</div>
+          </div>
+          <div class="qtyBox">
+            <button class="btn" data-act="dec">–</button>
+            <input class="qty" data-role="qty" type="number" step="0.01" min="0.01" value="${it.qty}" />
+            <button class="btn" data-act="inc">+</button>
+          </div>
+          <div class="pill">x</div>
+          <button class="btn danger" data-act="del">Remove</button>
+        `;
+        row.querySelector('[data-act="inc"]').onclick = () => { it.qty = (Number(it.qty)+1).toFixed(2).replace(/\.00$/,''); changed(); };
+        row.querySelector('[data-act="dec"]').onclick = () => { it.qty = Math.max(0.01, Number(it.qty)-1).toFixed(2).replace(/\.00$/,''); changed(); };
+        row.querySelector('[data-role="qty"]').onchange = (e) => { const v = Math.max(0.01, Number(e.target.value||1)); it.qty = v; changed(); };
+        row.querySelector('[data-act="del"]').onclick = () => { delete state.cart[it.barcode]; changed(); };
+        $('#list').appendChild(row);
+      }
+      $('#kCount').textContent = totalItems();
+      $('#kQty').textContent = totalQty();
+    }
+
+    function changed() { saveCart(); renderList(); }
+
+    function addScan(barcode, type) {
+      if (!barcode) return;
+      if (!state.cart[barcode]) state.cart[barcode] = { barcode, qty: 1, lastType: type || '' };
+      else state.cart[barcode].qty = Number(state.cart[barcode].qty) + 1;
+      navigator.vibrate?.(20);
+      changed();
+    }
+
+    // ==== Scanner ====
+    const { BrowserMultiFormatReader, NotFoundException, ChecksumException, FormatException, BarcodeFormat, DecodeHintType } = ZXingBrowser;
+
+    async function listCameras() {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      return devices.filter(d => d.kind === 'videoinput');
+    }
+
+    async function populateCameras() {
+      const cams = await listCameras();
+      const sel = $('#camera'); sel.innerHTML = '';
+      cams.forEach((c,i) => {
+        const opt = document.createElement('option');
+        opt.value = c.deviceId; opt.textContent = c.label || `Camera ${i+1}`;
+        sel.appendChild(opt);
+      });
+      // prefer the last one (often rear camera)
+      if (cams.length) sel.value = cams[cams.length - 1].deviceId;
+      state.controls.selectedDeviceId = sel.value;
+    }
+
+    async function startScanner() {
+      try {
+        $('#status').textContent = 'Starting…';
+        await populateCameras();
+        const hints = new Map();
+        hints.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.EAN_13, BarcodeFormat.EAN_8, BarcodeFormat.CODE_128]);
+        const codeReader = new BrowserMultiFormatReader(hints);
+        state.controls.codeReader = codeReader;
+        state.scanning = true;
+
+        const deviceId = state.controls.selectedDeviceId || $('#camera').value;
+        const video = $('#preview');
+        await codeReader.decodeFromVideoDevice(deviceId, video, (result, err, controls) => {
+          if (result) {
+            addScan(result.getText().trim(), result.getBarcodeFormat());
+            $('#status').textContent = `Read: ${result.getText()} (${result.getBarcodeFormat()})`;
+          } else if (err && !(err instanceof NotFoundException) && !(err instanceof ChecksumException) && !(err instanceof FormatException)) {
+            $('#status').textContent = `Error: ${String(err)}`;
+          }
+          state.controls.stream = controls; // for stop management
+        });
+      } catch (e) {
+        $('#status').innerHTML = `<span class="danger">${e.message || e}</span>`;
+      }
+    }
+
+    async function stopScanner() {
+      try {
+        state.scanning = false;
+        state.controls.codeReader?.reset();
+        const tracks = $('#preview').srcObject?.getTracks?.() || [];
+        tracks.forEach(t => t.stop());
+        $('#preview').srcObject = null;
+        $('#status').textContent = 'Scanner stopped';
+      } catch {}
+    }
+
+    async function toggleTorch() {
+      try {
+        const video = $('#preview');
+        const track = video.srcObject?.getVideoTracks?.()[0];
+        if (!track) return;
+        const cap = track.getCapabilities?.();
+        if (!cap || !cap.torch) { $('#status').textContent = 'Torch not supported'; return; }
+        state.controls.torchOn = !state.controls.torchOn;
+        await track.applyConstraints({ advanced: [{ torch: state.controls.torchOn }] });
+      } catch (e) {
+        $('#status').textContent = 'Unable to toggle torch';
+      }
+    }
+
+    // ==== Submit ====
+    function buildPayload() {
+      const items = Object.values(state.cart).map(it => ({ barcode: it.barcode, qty: Number(it.qty), type: it.lastType || undefined }));
+      return {
+        timestamp: new Date().toISOString(),
+        user: $('#user').value || undefined,
+        items,
+      };
+    }
+
+    function showPayload() {
+      const payload = buildPayload();
+      const json = JSON.stringify(payload, null, 2);
+      $('#payload').value = json;
+      $('#submitPanel').classList.remove('hidden');
+    }
+
+    async function doCopy() {
+      try { await navigator.clipboard.writeText($('#payload').value); $('#note').innerHTML = '<span class="ok">Copied to clipboard</span>'; } catch {}
+    }
+
+    async function doShare() {
+      try {
+        const payload = $('#payload').value;
+        if (navigator.share) {
+          await navigator.share({ title: 'Inventory checkout', text: payload });
+        } else {
+          $('#note').textContent = 'Native share not supported';
         }
-      }
-      if(err){
-        // err types often include NotFoundException per-frame; only log occasionally
-        // dbg('ZXing frame error', err);
-      }
-    });
-    dbg('decodeFromVideoDevice promise resolved — running.');
-    // also get the stream to inspect tracks & labels
-    try{
-      const v = document.getElementById('video');
-      const stream = v.srcObject;
-      if(stream) dbg('Video srcObject tracks:', stream.getTracks().map(t=>t.label));
-      currentStream = stream || null;
-    }catch(e){ dbg('Could not get video srcObject', e); }
-  }catch(e){ dbg('start error', e); }
-});
-
-function startZXingLiveAgain(){
-  // helper to restart using previously selected device
-  document.getElementById('start').click();
-}
-
-function stopZXingLive(){
-  try{
-    if(codeReader){ codeReader.reset(); dbg('codeReader.reset() called'); }
-  }catch(e){ dbg('codeReader.reset error', e); }
-  try{
-    const v = document.getElementById('video');
-    if(v && v.srcObject){
-      v.srcObject.getTracks().forEach(t=>t.stop());
-      v.srcObject = null;
-      dbg('Stopped video tracks');
+      } catch {}
     }
-  }catch(e){ dbg('stop tracks error', e); }
-  codeReader = null;
-  currentStream = null;
-}
 
-document.getElementById('stop').addEventListener('click', ()=>{ stopZXingLive(); dbg('Manual stop requested'); });
+    function downloadJSON() {
+      const blob = new Blob([$('#payload').value], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'inventory-checkout.json'; a.click();
+      URL.revokeObjectURL(url);
+    }
 
-// decode one frame from video (canvas) using ZXing reader decodeFromCanvas
-document.getElementById('oneframe').addEventListener('click', async ()=>{
-  try{
-    const v = document.getElementById('video');
-    if(!v || v.readyState < 2){ dbg('Video not ready'); return; }
-    const canvas = document.createElement('canvas');
-    canvas.width = v.videoWidth || v.clientWidth;
-    canvas.height = v.videoHeight || v.clientHeight;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
-    dbg('Attempting decodeFromCanvas with ZXing...');
-    try{
-      const reader = new ZXingBrowser.BrowserBarcodeReader();
-      const res = await reader.decodeFromCanvas(canvas);
-      dbg('decodeFromCanvas result:', res && res.text ? res.text : res);
-    }catch(e){ dbg('decodeFromCanvas error:', e); }
-  }catch(e){ dbg('oneframe error', e); }
-});
+    function clearAll() {
+      if (!confirm('Clear the list?')) return;
+      state.cart = {}; changed();
+      $('#submitPanel').classList.add('hidden');
+    }
 
-// auto-enumerate on load
-window.addEventListener('load', async ()=>{
-  dbg('On load: enumerate devices automatically');
-  try{ document.getElementById('enum').click(); }catch(e){ dbg('auto-enum failed', e); }
-});
+    function addManual() {
+      const code = $('#manualCode').value.trim();
+      const qty = Math.max(0.01, Number($('#manualQty').value || 1));
+      if (!code) return;
+      if (!state.cart[code]) state.cart[code] = { barcode: code, qty, lastType: 'MANUAL' };
+      else state.cart[code].qty = Number(state.cart[code].qty) + qty;
+      $('#manualCode').value = '';
+      changed();
+    }
 
-// helper to print userAgent & permissions state
-(async function showEnv(){
-  dbg('UserAgent:', navigator.userAgent);
-  try{
-    const pm = await navigator.permissions.query({name:'camera'}).catch(()=>null);
-    dbg('Camera permission state (permissions API):', pm ? pm.state : '(not available)');
-  }catch(e){ dbg('Permission query failed', e); }
-})();
+    // ==== Wiring ====
+    $('#camera').addEventListener('change', (e) => { state.controls.selectedDeviceId = e.target.value; if (state.scanning) { stopScanner(); startScanner(); } });
+    $('#start').onclick = startScanner;
+    $('#stop').onclick = stopScanner;
+    $('#torch').onclick = toggleTorch;
+    $('#submit').onclick = showPayload;
+    $('#copy').onclick = doCopy;
+    $('#share').onclick = doShare;
+    $('#download').onclick = downloadJSON;
+    $('#clear').onclick = clearAll;
+    $('#addManual').onclick = addManual;
 
-</script>
+    // init
+    (async () => {
+      renderList();
+      try { await populateCameras(); } catch {}
+      $('#note').innerHTML = '<span class="hint">Tip: Add this page to your Home screen for quick access.</span>';
+    })();
+  </script>
 </body>
 </html>
+```
+
+---
+
+## Deploy on GitHub Pages (quick)
+
+1. Create a public repo (e.g., `workshop-inventory-scanner`) and add this **`index.html`**.
+2. Commit & push to `main`.
+3. Repo → **Settings → Pages** → *Deploy from a branch* → Branch `main` → Folder `/ (root)` → **Save**.
+   Your URL will be `https://<username>.github.io/workshop-inventory-scanner/`.
+
+That’s it — open the URL on your phone, tap **Start scanner**, and you’re set.
+
+---
+
+## Next (optional)
+
+* **PWA**: installable app icon + offline cache.
+* **Local CSV mapping** (barcode→name/unit) shown client‑side.
+* **Automatic submit hook** to an API when you’re ready to integrate with Excel.

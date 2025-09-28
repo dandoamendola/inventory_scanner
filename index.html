@@ -95,48 +95,39 @@
     </section>
   </main>
 
-  <!-- ZXing UMD builds from CDN (load library first, then browser wrapper) -->
+  <!-- Correct UMDs: library first, then browser -->
   <script src="https://unpkg.com/@zxing/library@0.21.2/umd/index.min.js"></script>
-  <script src="https://unpkg.com/@zxing/browser@0.1.5/umd/index.min.js"></script>
+  <script src="https://unpkg.com/@zxing/browser@0.1.5/umd/zxing-browser.min.js"></script>
   <script>
-    /* Why: single-file, phone-first, persistent local cart, camera scanner via ZXing */
-
     // ==== State & Utils ====
     const STORAGE_KEY = 'inv_cart_v1';
+    const $ = (sel) => document.querySelector(sel);
 
     function normalizeQty(v) {
       let n = Number(v);
       if (!Number.isFinite(n)) n = 1;
       n = Math.max(0.5, n);
-      n = Math.round(n * 2) / 2; // snap to 0.5 steps
+      n = Math.round(n * 2) / 2; // .5 steps
       const frac = Math.abs(n - Math.trunc(n));
-      if (frac !== 0 && Math.abs(frac - 0.5) > 1e-9) n = Math.trunc(n) + 0.5; // enforce .0 or .5
+      if (frac !== 0 && Math.abs(frac - 0.5) > 1e-9) n = Math.trunc(n) + 0.5;
       return n;
     }
 
-    const $ = (sel) => document.querySelector(sel);
-    const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+    function loadCart() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch { return {}; } }
+    function saveCart() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state.cart)); }
+    function totalItems() { return Object.keys(state.cart).length; }
+    function totalQty() { return Object.values(state.cart).reduce((s, it) => s + Number(it.qty || 0), 0); }
 
     const state = {
-      cart: loadCart(), // { [barcode]: { barcode, qty, lastType } }
+      cart: loadCart(),
       scanning: false,
       controls: { codeReader: null, selectedDeviceId: null, torchOn: false },
       lastDecode: { text: '', t: 0 },
     };
 
-    function loadCart() {
-      try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'); } catch { return {}; }
-    }
-    function saveCart() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state.cart)); }
-
-    function totalItems() { return Object.keys(state.cart).length; }
-    function totalQty() { return Object.values(state.cart).reduce((s, it) => s + Number(it.qty || 0), 0); }
-
     function renderList() {
-      const list = $('#list');
-      list.innerHTML = '';
-      const entries = Object.values(state.cart);
-      for (const it of entries) {
+      const list = $('#list'); list.innerHTML = '';
+      for (const it of Object.values(state.cart)) {
         const row = document.createElement('div');
         row.className = 'item';
         row.innerHTML = `
@@ -172,8 +163,12 @@
       changed();
     }
 
-    // ==== Scanner (ZXing) ====
-    // Why: Exceptions come from @zxing/library, reader comes from @zxing/browser.
+    // ==== Scanner ====
+    if (!window.ZXing || !window.ZXingBrowser) {
+      console.error('ZXing UMDs failed to load');
+      $('#status').innerHTML = '<span class="danger">Failed to load ZXing scripts. Check network / CDN URLs.</span>';
+    }
+
     const { BrowserMultiFormatReader } = ZXingBrowser;
     const { BarcodeFormat, DecodeHintType, NotFoundException, ChecksumException, FormatException } = ZXing;
 
@@ -183,26 +178,34 @@
     }
 
     async function listCameras() {
-      // Why: opening a temp stream yields device labels on iOS/Safari
-      const temp = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-      temp.getTracks().forEach(t => t.stop());
+      const tmp = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      tmp.getTracks().forEach(t => t.stop());
       const devices = await navigator.mediaDevices.enumerateDevices();
       return devices.filter(d => d.kind === 'videoinput');
     }
 
+    function pickRear(cams) {
+      const byHint = cams.find(c => /back|rear|environment/i.test(c.label || ''));
+      return byHint ? byHint.deviceId : (cams.at(-1)?.deviceId || cams[0]?.deviceId || null);
+    }
+
     async function populateCameras() {
-      const cams = await listCameras();
       const sel = $('#camera'); sel.innerHTML = '';
+      const cams = await listCameras();
       cams.forEach((c, i) => {
         const opt = document.createElement('option');
         opt.value = c.deviceId; opt.textContent = c.label || `Camera ${i + 1}`;
         sel.appendChild(opt);
       });
-      if (cams.length) sel.value = cams[cams.length - 1].deviceId; // often rear
+      const prefer = pickRear(cams);
+      if (prefer) sel.value = prefer;
       state.controls.selectedDeviceId = sel.value || null;
     }
 
     async function startScanner() {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        $('#status').innerHTML = '<span class="danger">Camera API not supported on this device/browser.</span>'; return;
+      }
       try {
         $('#status').textContent = 'Starting…';
         await populateCameras();
@@ -214,9 +217,9 @@
         state.scanning = true;
 
         const video = $('#preview');
-        const deviceId = state.controls.selectedDeviceId || $('#camera').value || undefined;
+        const deviceId = state.controls.selectedDeviceId || $('#camera').value || null;
 
-        const onDecode = (result, err, controls) => {
+        const onDecode = (result, err) => {
           if (result) {
             const text = result.getText().trim();
             const now = Date.now();
@@ -229,7 +232,6 @@
           } else if (err && !(err instanceof NotFoundException) && !(err instanceof ChecksumException) && !(err instanceof FormatException)) {
             $('#status').innerHTML = `<span class="danger">Error: ${String(err)}</span>`;
           }
-          // controls unused; stream is attached to <video> by ZXing
         };
 
         try {
@@ -256,7 +258,7 @@
       } catch (e) {
         $('#status').innerHTML = `<span class="danger">${e?.message || e}</span>`;
         if (/NotAllowedError/i.test(String(e))) {
-          $('#status').innerHTML += '<br><span class="hint">Tip: allow Camera permission in browser settings and reload.</span>';
+          $('#status').innerHTML += '<br><span class="hint">Tip: allow camera permission, then tap “Start scanner” again.</span>';
         }
       }
     }
@@ -301,12 +303,8 @@
     }
 
     async function doCopy() {
-      try {
-        await navigator.clipboard.writeText($('#payload').value);
-        $('#note').innerHTML = '<span class="ok">Copied to clipboard</span>';
-      } catch {
-        $('#note').innerHTML = '<span class="danger">Clipboard not available</span>';
-      }
+      try { await navigator.clipboard.writeText($('#payload').value); $('#note').innerHTML = '<span class="ok">Copied to clipboard</span>'; }
+      catch { $('#note').innerHTML = '<span class="danger">Clipboard not available</span>'; }
     }
 
     async function doShare() {
@@ -360,7 +358,7 @@
     (async () => {
       renderList();
       try { await populateCameras(); } catch {}
-      $('#note').innerHTML = '<span class="hint">Tip: Add this page to your Home screen for quick access.</span>';
+      $('#note').innerHTML = '<span class="hint">Tip: Use HTTPS (e.g., GitHub Pages) for camera access.</span>';
     })();
   </script>
 </body>

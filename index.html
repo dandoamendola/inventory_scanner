@@ -13,11 +13,17 @@
     main { padding: var(--pad); }
     .card { background:#15171d; border:1px solid #23262d; border-radius: var(--radius); padding: var(--pad); }
 
-    /* Narrow preview for iPhone 13 + overlay */
+    /* iPhone 13-friendly narrow preview + overlay */
     .previewWrap { position: relative; width: 100%; height: 140px; border-radius: 12px; overflow: hidden; background:#000; }
     #preview { position:absolute; inset:0; width:100%; height:100%; object-fit: cover; }
     .overlay { position:absolute; inset:0; pointer-events:auto; display:flex; align-items:center; justify-content:center; }
-    .overlay .guide { width: 82%; height: 34%; border: 2px solid rgba(255,255,255,.95); border-radius: 10px; box-shadow: 0 0 0 2000px rgba(0,0,0,.45); outline: 1px solid rgba(0,0,0,.35); }
+    .overlay .guide {
+      width: 82%; height: 34%;
+      border: 2px solid rgba(255,255,255,.95);
+      border-radius: 10px;
+      box-shadow: 0 0 0 2000px rgba(0,0,0,.45);
+      outline: 1px solid rgba(0,0,0,.35);
+    }
 
     .row { display:flex; gap:10px; align-items:center; }
     .row > * { flex:1; }
@@ -97,7 +103,7 @@
       <div class="row" style="margin-top:10px;">
         <button id="clear" class="btn">Clear</button>
         <button id="export" class="btn">Export CSV</button>
-        <button id="sendSheet" class="btn primary">Send to  Sheet</button>
+        <button id="sendSheet" class="btn primary">Send to Google Sheet</button>
       </div>
       <div class="status" id="note"></div>
     </section>
@@ -118,10 +124,10 @@
   <script src="https://unpkg.com/@zxing/library@0.21.2/umd/index.min.js"></script>
   <script src="https://unpkg.com/@zxing/browser@0.1.5/umd/zxing-browser.min.js"></script>
   <script>
-    // ==== CONFIG ====
-    const GOOGLE_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxRiifyYgLi9EBm0CWVdngewCj8TenSlEs157mUNw19_bP30jGFYdmRa3laruE8FmzM/exec'; // Apps Script Web App URL
+    // === CONFIG: paste your Apps Script Web App URL (/exec), not the Sheet URL ===
+    const GOOGLE_WEB_APP_URL = 'PASTE_WEB_APP_URL_HERE';
 
-    // ==== State & Utils ====
+    // === State & Utils ===
     const STORAGE_KEY = 'inv_cart_v1';
     const $ = (sel) => document.querySelector(sel);
 
@@ -186,7 +192,7 @@
       changed();
     }
 
-    // ==== Scanner ====
+    // === Scanner ===
     const { BrowserMultiFormatReader } = ZXingBrowser;
     const { BarcodeFormat, DecodeHintType } = ZXing;
 
@@ -311,7 +317,7 @@
       } catch { $('#status').textContent = 'Unable to toggle torch'; }
     }
 
-    // ==== Force scan (ROI) ====
+    // === Force scan (ROI) ===
     function getRoiFromOverlay() {
       const video = $('#preview'), wrap = $('#wrap'), guide = $('#overlay .guide');
       const vw = video.videoWidth, vh = video.videoHeight;
@@ -349,42 +355,44 @@
         const typeName = fmtName(result.getBarcodeFormat?.());
         addScan(text, typeName);
         $('#status').textContent = `Read: ${text} (${typeName})`;
-      } catch (err) {
+      } catch {
         $('#status').textContent = 'No code in rectangle';
       }
     }
 
-    // ==== CSV/Sheet rows (A/E/I) ====
+    // === CSV/Sheet rows (A/E/I) ===
     function buildRow9(it) {
       const qty = normalizeQty(it.qty);
       const q = (qty % 1) ? qty.toFixed(1) : String(qty);
       const t = String(it.lastType || '').toUpperCase();
       const row = ['', '', '', '', '', '', '', '', '']; // A..I
-      if (t === 'CODE_128') row[0] = String(it.barcode);       // A
+      if (t === 'CODE_128') row[0] = String(it.barcode);                // A
       if (t === 'EAN_13' || t === 'EAN_8' || t === 'EAN') row[4] = String(it.barcode); // E
-      row[8] = q; // I
+      row[8] = q;                                                       // I
       return row;
     }
-
-    function buildCSV() {
-      const rows = Object.values(state.cart)
+    function buildSheetRows() {
+      return Object.values(state.cart)
         .filter(it => ['CODE_128','EAN_13','EAN_8','EAN'].includes(String(it.lastType).toUpperCase()))
-        .map(it => buildRow9(it).map((v,i)=> (i===0||i===4) ? `"${String(v).replace(/"/g,'""')}"` : String(v)).join(','));
-      return rows.join('\r\n');
+        .map(buildRow9);
     }
 
+    // === CSV Export ===
+    function buildCSV() {
+      const rows = buildSheetRows()
+        .map(r => r.map((v,i)=> (i===0||i===4) ? `"${String(v).replace(/"/g,'""')}"` : String(v)).join(','));
+      return rows.join('\r\n');
+    }
     function showCSV() {
       const rows = buildCSV();
       $('#csv').value = rows;
       $('#exportPanel').classList.remove('hidden');
       if (!rows) $('#note').innerHTML = '<span class="hint">Nothing to export yet.</span>';
     }
-
     async function doCopyCSV() {
       try { await navigator.clipboard.writeText($('#csv').value); $('#note').innerHTML = '<span class="ok">CSV copied</span>'; }
       catch { $('#note').innerHTML = '<span class="danger">Clipboard not available</span>'; }
     }
-
     async function doShareCSV() {
       try {
         const bom = '\uFEFF', data = bom + $('#csv').value;
@@ -394,7 +402,6 @@
         else $('#note').textContent = 'Native share not supported';
       } catch {}
     }
-
     function downloadCSV() {
       const bom = '\uFEFF';
       const blob = new Blob([bom + $('#csv').value], { type: 'text/csv;charset=utf-8' });
@@ -402,36 +409,67 @@
       const a = document.createElement('a'); a.href = url; a.download = 'inventory.csv'; a.click(); URL.revokeObjectURL(url);
     }
 
-    // ==== Google Sheets submit ====
-    function buildSheetRows() {
-      return Object.values(state.cart)
-        .filter(it => ['CODE_128','EAN_13','EAN_8','EAN'].includes(String(it.lastType).toUpperCase()))
-        .map(buildRow9);
+    // === Send to Google Sheet (validate + auto-clear on success) ===
+    function validateRows(rows) {
+      let valid = [], invalid = 0;
+      for (const r of rows) {
+        const hasCode = (r[0] && String(r[0]).trim()) || (r[4] && String(r[4]).trim());
+        const hasQty = String(r[8] ?? '').trim() !== '';
+        if (hasCode && hasQty) valid.push(r); else invalid++;
+      }
+      return { valid, invalid };
     }
 
     async function sendToGoogleSheet() {
-      if (!GOOGLE_WEB_APP_URL || GOOGLE_WEB_APP_URL.startsWith('PASTE_')) { $('#note').innerHTML = '<span class="danger">Set GOOGLE_WEB_APP_URL (Apps Script Web App URL).</span>'; return; }
-      const rows = buildSheetRows();
-      if (!rows.length) { $('#note').innerHTML = '<span class="hint">No rows to send.</span>'; return; }
+      if (!GOOGLE_WEB_APP_URL || GOOGLE_WEB_APP_URL.startsWith('PASTE_')) {
+        $('#note').innerHTML = '<span class="danger">Set GOOGLE_WEB_APP_URL (Apps Script Web App URL).</span>'; return;
+      }
+      const rowsAll = buildSheetRows();
+      const { valid, invalid } = validateRows(rowsAll);
+      if (!valid.length) { $('#note').innerHTML = '<span class="danger">No valid rows: every row needs code (A or E) and qty (I).</span>'; return; }
+
+      const stats = valid.reduce((a, r) => { if (r[0]) a.code128++; if (r[4]) a.ean++; a.qty += parseFloat(r[8]||0); return a; }, {code128:0, ean:0, qty:0});
+      $('#note').innerHTML = `Sending ${valid.length} rows (Code128: ${stats.code128}, EAN: ${stats.ean}).`;
+
       const btn = $('#sendSheet'); btn.disabled = true; btn.textContent = 'Sending…';
       try {
-        const r = await fetch(GOOGLE_WEB_APP_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows }) });
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        $('#note').innerHTML = '<span class="ok">Sent to Google Sheet</span>';
+        const resp = await fetch(GOOGLE_WEB_APP_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rows: valid })
+        });
+
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        let data = {};
+        try { data = await resp.json(); } catch {}
+        if (data.ok) {
+          // auto-clear on success
+          state.cart = {}; changed();
+          $('#note').innerHTML = `<span class="ok">Sent: ${data.appended} rows appended${invalid ? `, ${invalid} skipped` : ''}. Cart cleared.</span>`;
+        } else {
+          throw new Error(data.error || 'Unknown error from script');
+        }
       } catch {
-        try { await fetch(GOOGLE_WEB_APP_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ rows }) }); $('#note').innerHTML = '<span class="ok">Sent (no-cors)</span>'; }
-        catch { $('#note').innerHTML = '<span class="danger">Send failed</span>'; }
-      } finally { btn.disabled = false; btn.textContent = 'Send to Google Sheet'; }
+        // Fallback: still clear (you asked to auto-clear after send).
+        try {
+          await fetch(GOOGLE_WEB_APP_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ rows: valid }) });
+          state.cart = {}; changed();
+          $('#note').innerHTML = `<span class="ok">Sent (no-cors). Cart cleared.${invalid ? ` ${invalid} skipped locally.` : ''}</span>`;
+        } catch {
+          $('#note').innerHTML = '<span class="danger">Send failed</span>';
+        }
+      } finally {
+        btn.disabled = false; btn.textContent = 'Send to Google Sheet';
+      }
     }
 
-    // ==== Clear / Manual ====
+    // === Clear / Manual ===
     function clearAll() {
       if (!confirm('Clear the list?')) return;
       state.cart = {}; changed();
       $('#exportPanel').classList.add('hidden');
     }
-
-    // Manual: 8 chars → CODE_128; else → EAN (per your rule)
+    // Manual: 8 chars → CODE_128; else → EAN
     function addManual() {
       const code = $('#manualCode').value.trim();
       const qty = normalizeQty($('#manualQty').value || 1);
@@ -443,7 +481,7 @@
       changed();
     }
 
-    // ==== Wiring ====
+    // === Wiring ===
     $('#camera').addEventListener('change', (e) => { state.controls.selectedDeviceId = e.target.value; if (state.scanning) { stopScanner(); startScanner(); } });
     $('#start').onclick = startScanner;
     $('#stop').onclick = stopScanner;
@@ -462,8 +500,61 @@
     (async () => {
       renderList();
       try { await populateCameras(); } catch {}
-      $('#note').innerHTML = '<span class="hint">A=CODE128, E=EAN, I=Qty (manual: len=8→CODE128).</span>';
+      $('#note').innerHTML = '<span class="hint">A=CODE128, E=EAN, I=Qty (0.5). Send clears the cart.</span>';
     })();
   </script>
 </body>
 </html>
+
+<!-- /apps-script/Code.gs -->
+/**
+ * Appends validated 9-column rows to FIRST sheet (gid=0).
+ * Valid row must have (A OR E) AND I. Returns {ok, appended, skipped}.
+ */
+function doPost(e) {
+  try {
+    var body = (e && e.postData && e.postData.contents) ? e.postData.contents : '';
+    var data = body ? JSON.parse(body) : {};
+    var rows = Array.isArray(data.rows) ? data.rows : [];
+    if (!rows.length) return _json({ ok: false, error: 'No rows' });
+
+    var sanitized = [];
+    var skipped = 0;
+
+    for (var i = 0; i < rows.length; i++) {
+      var r = Array.isArray(rows[i]) ? rows[i].slice(0, 9) : [];
+      while (r.length < 9) r.push('');
+      var code128 = r[0] != null ? String(r[0]).trim() : '';
+      var ean     = r[4] != null ? String(r[4]).trim() : '';
+      var qty     = r[8] != null ? String(r[8]).trim() : '';
+      var hasCode = !!(code128 || ean);
+      var hasQty  = qty !== '';
+
+      if (hasCode && hasQty) {
+        r[0] = code128; r[4] = ean; r[8] = qty; // keep as strings
+        sanitized.push(r);
+      } else {
+        skipped++;
+      }
+    }
+
+    if (!sanitized.length) return _json({ ok: false, error: 'No valid rows (need code and qty)', skipped: skipped });
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();  // container-bound
+    var sheet = ss.getSheets()[0];                   // gid=0
+    var startRow = sheet.getLastRow() + 1;
+    sheet.getRange(startRow, 1, sanitized.length, 9).setValues(sanitized);
+
+    return _json({ ok: true, appended: sanitized.length, skipped: skipped });
+  } catch (err) {
+    return _json({ ok: false, error: String(err && err.message || err) });
+  }
+}
+
+function doGet() {
+  return _json({ ok: true, info: 'POST { rows: [[A..I], ...] } – requires (A or E) and I.' });
+}
+
+function _json(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}

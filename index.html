@@ -25,7 +25,7 @@
     .qtyBox { display:flex; gap:6px; align-items:center; }
     .qty { min-width: 44px; text-align:center; padding:8px; border-radius:10px; border:1px solid #2c3038; background:#101218; color:#fff; }
     .pill { font-size:12px; padding:4px 8px; border:1px solid #2c3038; border-radius:999px; text-align:center; }
-    .status { margin-top:8px; font-size:13px; }
+    .status { margin-top:8px; font-size:13px; min-height: 1.4em; }
     .danger { color: #ff6b6b; }
     .ok { color: #1dd1a1; }
     .grid { display:grid; gap:10px; }
@@ -164,17 +164,21 @@
     }
 
     // ==== Scanner ====
-    if (!window.ZXing || !window.ZXingBrowser) {
-      console.error('ZXing UMDs failed to load');
-      $('#status').innerHTML = '<span class="danger">Failed to load ZXing scripts. Check network / CDN URLs.</span>';
-    }
-
     const { BrowserMultiFormatReader } = ZXingBrowser;
-    const { BarcodeFormat, DecodeHintType, NotFoundException, ChecksumException, FormatException } = ZXing;
+    const { BarcodeFormat, DecodeHintType } = ZXing;
 
     function formatToString(fmt) {
       for (const [k, v] of Object.entries(BarcodeFormat)) if (v === fmt) return k;
       return String(fmt);
+    }
+
+    const benignErrNames = new Set(['NotFoundException', 'ChecksumException', 'FormatException']);
+    function isBenignZXingError(err) {
+      if (!err) return false;
+      if (benignErrNames.has(err.name)) return true;
+      const msg = String(err && (err.message || err));
+      // UMD/realm mismatch: rely on message fingerprint too.
+      return /No MultiFormat Readers were able to detect the code|checksum|format/i.test(msg);
     }
 
     async function listCameras() {
@@ -212,7 +216,9 @@
 
         const hints = new Map();
         hints.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.EAN_13, BarcodeFormat.EAN_8, BarcodeFormat.CODE_128]);
-        const codeReader = new BrowserMultiFormatReader(hints);
+        hints.set(DecodeHintType.TRY_HARDER, true);
+
+        const codeReader = new BrowserMultiFormatReader(hints, 300); // 300ms between scans
         state.controls.codeReader = codeReader;
         state.scanning = true;
 
@@ -229,8 +235,11 @@
               state.lastDecode = { text, t: now };
               $('#status').textContent = `Read: ${text} (${typeName})`;
             }
-          } else if (err && !(err instanceof NotFoundException) && !(err instanceof ChecksumException) && !(err instanceof FormatException)) {
-            $('#status').innerHTML = `<span class="danger">Error: ${String(err)}</span>`;
+          } else if (err && !isBenignZXingError(err)) {
+            $('#status').innerHTML = `<span class="danger">Scanner error: ${String(err.message || err)}</span>`;
+          } else {
+            // keep a subtle “scanning…” heartbeat without spamming
+            if (document.visibilityState === 'visible') $('#status').textContent = 'Scanning…';
           }
         };
 
@@ -244,7 +253,11 @@
         } catch {
           try {
             await codeReader.decodeFromConstraints({
-              video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+              video: {
+                facingMode: { ideal: 'environment' },
+                width: { ideal: 1920 },
+                height: { ideal: 1080 }
+              },
               audio: false
             }, video, onDecode);
             $('#status').textContent = 'Scanner running (constraints)';
@@ -258,7 +271,7 @@
       } catch (e) {
         $('#status').innerHTML = `<span class="danger">${e?.message || e}</span>`;
         if (/NotAllowedError/i.test(String(e))) {
-          $('#status').innerHTML += '<br><span class="hint">Tip: allow camera permission, then tap “Start scanner” again.</span>';
+          $('#status').innerHTML += '<br><span class="hint">Allow camera permission, then tap “Start scanner”.</span>';
         }
       }
     }
@@ -358,7 +371,7 @@
     (async () => {
       renderList();
       try { await populateCameras(); } catch {}
-      $('#note').innerHTML = '<span class="hint">Tip: Use HTTPS (e.g., GitHub Pages) for camera access.</span>';
+      $('#note').innerHTML = '<span class="hint">Tip: fill the frame with the code, good light, steady hand (try torch).</span>';
     })();
   </script>
 </body>

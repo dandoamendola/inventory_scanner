@@ -32,7 +32,6 @@
     .kpi { display:flex; justify-content:space-between; font-size:13px; opacity:.85; }
     .hidden { display:none; }
     .hr { height:1px; background:#23262d; margin:10px 0; }
-
     /* Narrow preview + overlay window */
     .previewWrap { position: relative; width: 100%; height: 140px; border-radius: 12px; overflow: hidden; background:#000; }
     #preview { position:absolute; inset:0; width:100%; height:100%; object-fit: cover; }
@@ -183,6 +182,17 @@
   function fmtName(fmt){ for(const [k,v] of Object.entries(BarcodeFormat)) if(v===fmt) return k; return String(fmt); }
   const benignErr=(err)=>!!(err && (/No MultiFormat Readers were able|checksum|format/i.test(String(err.message||err))));
 
+  // EAN-13 validation (digits + checksum)
+  function isValidEAN13(txt){
+    if (!/^\d{13}$/.test(txt)) return false;
+    const digits = txt.split('').map(d=>d.charCodeAt(0)-48);
+    const check = digits[12];
+    let sum = 0;
+    for (let i = 0; i < 12; i++) sum += (i % 2 === 0) ? digits[i] : digits[i] * 3;
+    const calc = (10 - (sum % 10)) % 10;
+    return calc === check;
+  }
+
   function isAllowedFormat(fmt){
     return fmt === BarcodeFormat.CODE_128 || fmt === BarcodeFormat.EAN_13; // EAN_8 disabled
   }
@@ -203,11 +213,19 @@
     state.controls.selectedDeviceId=sel.value||null;
   }
 
+  // Hints for continuous scan (both formats, EAN listed first but ZXing may not honor order)
   function buildHints(){
     const hints=new Map();
-    hints.set(DecodeHintType.POSSIBLE_FORMATS,[BarcodeFormat.CODE_128, BarcodeFormat.EAN_13]);
+    hints.set(DecodeHintType.POSSIBLE_FORMATS,[BarcodeFormat.EAN_13, BarcodeFormat.CODE_128]);
     hints.set(DecodeHintType.TRY_HARDER,true);
     state.hints=hints; return hints;
+  }
+  // Hints for EAN-first passes (force scan)
+  function buildHintsEANOnly(){
+    const hints=new Map();
+    hints.set(DecodeHintType.POSSIBLE_FORMATS,[BarcodeFormat.EAN_13]);
+    hints.set(DecodeHintType.TRY_HARDER,true);
+    return hints;
   }
 
   async function startScanner(){
@@ -228,6 +246,7 @@
           const fmt = result.getBarcodeFormat?.();
           const text = result.getText().trim();
           if (!isAllowedFormat(fmt)) { $('#status').textContent='Ignored: unsupported symbology'; return; }
+          if (fmt === BarcodeFormat.EAN_13 && !isValidEAN13(text)) { $('#status').textContent='Ignored: invalid EAN-13'; return; }
           addScan(text, fmtName(fmt));
           $('#status').textContent=`Read: ${text} (${fmtName(fmt)})`;
         }else if(err && !benignErr(err)){
@@ -287,7 +306,7 @@
     }catch{ $('#status').textContent='Unable to toggle torch'; }
   }
 
-  // Force scan (ROI + enhanced + fallbacks)
+  // Force scan (EAN-first → then both)
   function shutterFlash(){ const s=$('#shutter'); s.classList.add('active'); setTimeout(()=>s.classList.remove('active'),140); }
   function getRoiFromOverlay(){
     const video=$('#preview'), wrap=$('#wrap'), guide=$('#overlay .guide');
@@ -310,7 +329,8 @@
     const sctx=canvas.getContext('2d'), dctx=out.getContext('2d');
     const img=sctx.getImageData(0,0,canvas.width,canvas.height), data=img.data;
     const contrast=1.6, mid=128;
-    for(let i=0;i<data.length;i+=4){ const r=data[i],g=data[i+1],b=data[i+2];
+    for(let i=0;i<data.length;i+=4){
+      const r=data[i],g=data[i+1],b=data[i+2];
       let y=0.2126*r+0.7152*g+0.0722*b; y=(y-mid)*contrast+mid; y=y<0?0:y>255?255:y;
       const thr=y>130?255:0; data[i]=data[i+1]=data[i+2]=thr;
     }
@@ -326,27 +346,57 @@
     const video=$('#preview'); if(!video.videoWidth){ $('#status').textContent='Camera not ready…'; return; }
 
     state.forceLock=true; shutterFlash(); try{ video.pause?.(); }catch{}
-    const reader=new BrowserMultiFormatReader(state.hints||buildHints());
+    // 1) EAN-only reader
+    const readerEAN = new BrowserMultiFormatReader(buildHintsEANOnly());
+    // 2) Fallback reader (both)
+    const readerBoth = new BrowserMultiFormatReader(state.hints || buildHints());
+
     const roi=getRoiFromOverlay(); let result=null;
 
-    if(roi){
-      for(const s of [3,2]){ const c=draw(video, roi.sx,roi.sy,roi.sw,roi.sh, s); if(result=tryDecode(reader,c)) break;
-        const ce=enhance1D(c); if(result=tryDecode(reader,ce)) break; }
+    // --- EAN-first passes ---
+    if(roi && !result){
+      for(const s of [3,2]){
+        const c=draw(video, roi.sx,roi.sy,roi.sw,roi.sh, s);
+        if(result=tryDecode(readerEAN,c)) break;
+        const ce=enhance1D(c);
+        if(result=tryDecode(readerEAN,ce)) break;
+      }
     }
-    if(!result){ const vw=video.videoWidth, vh=video.videoHeight, stripH=Math.max(80, Math.round(vh*0.28));
-      const sy=Math.round(vh/2 - stripH/2); const c=draw(video, 0,sy, vw,stripH, 2);
-      if(!(result=tryDecode(reader,c))) result=tryDecode(reader, enhance1D(c)); }
-    if(!result && roi){ const c=draw(video, roi.sx,roi.sy,roi.sw,roi.sh, 3); const r=rotate90(c);
-      if(!(result=tryDecode(reader,r))) result=tryDecode(reader, enhance1D(r)); }
-    if(!result){ const vw=video.videoWidth, vh=video.videoHeight; const c=draw(video, 0,0, vw,vh, Math.min(1.6,1200/Math.max(vw,vh)));
-      if(!(result=tryDecode(reader,c))) result=tryDecode(reader, enhance1D(c)); }
+    if(!result){
+      const vw=video.videoWidth, vh=video.videoHeight, stripH=Math.max(80, Math.round(vh*0.28));
+      const sy=Math.round(vh/2 - stripH/2);
+      const c=draw(video, 0,sy, vw,stripH, 2);
+      if(!(result=tryDecode(readerEAN,c))) result=tryDecode(readerEAN, enhance1D(c));
+    }
+    if(!result && roi){
+      const c=draw(video, roi.sx,roi.sy,roi.sw,roi.sh, 3);
+      const r=rotate90(c);
+      if(!(result=tryDecode(readerEAN,r))) result=tryDecode(readerEAN, enhance1D(r));
+    }
 
-    reader.reset(); try{ await video.play?.(); }catch{} state.forceLock=false;
+    // --- Fallback to both formats if still nothing ---
+    if(!result && roi){
+      for(const s of [3,2]){
+        const c=draw(video, roi.sx,roi.sy,roi.sw,roi.sh, s);
+        if(result=tryDecode(readerBoth,c)) break;
+        const ce=enhance1D(c);
+        if(result=tryDecode(readerBoth,ce)) break;
+      }
+    }
+    if(!result){
+      const vw=video.videoWidth, vh=video.videoHeight;
+      const c=draw(video, 0,0, vw,vh, Math.min(1.6,1200/Math.max(vw,vh)));
+      if(!(result=tryDecode(readerBoth,c))) result=tryDecode(readerBoth, enhance1D(c));
+    }
+
+    readerEAN.reset(); readerBoth.reset();
+    try{ await video.play?.(); }catch{} state.forceLock=false;
 
     if(result){
       const fmt = result.getBarcodeFormat?.();
       const text = result.getText().trim();
       if (!isAllowedFormat(fmt)) { $('#status').textContent='Ignored: unsupported symbology'; return; }
+      if (fmt === BarcodeFormat.EAN_13 && !isValidEAN13(text)) { $('#status').textContent='Ignored: invalid EAN-13'; return; }
       addScan(text, fmtName(fmt));
       $('#status').textContent=`Read: ${text} (${fmtName(fmt)})`;
     }else{
@@ -408,13 +458,13 @@
   }
 
   function clearAll(){ if(!confirm('Clear the list?')) return; state.cart={}; changed(); }
-  // Manual: 13 digits ⇒ EAN_13; else CODE_128 (relaxed)
+  // Manual: 13 digits + checksum ⇒ EAN_13; else CODE_128
   function addManual(){
     ensureAudio();
     const code=$('#manualCode').value.trim();
     const qty=normalizeQty($('#manualQty').value||1);
     if(!code) return;
-    const type=(/^\d{13}$/.test(code)) ? 'EAN_13' : 'CODE_128';
+    const type = (/^\d{13}$/.test(code) && isValidEAN13(code)) ? 'EAN_13' : 'CODE_128';
     if(!state.cart[code]) state.cart[code]={ barcode: code, qty, lastType: type };
     else state.cart[code].qty=normalizeQty(Number(state.cart[code].qty)+qty);
     $('#manualCode').value=''; beep(); changed();
